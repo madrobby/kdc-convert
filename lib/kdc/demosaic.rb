@@ -34,10 +34,6 @@ module KDC
       # Parse Bayer pattern
       # pattern is a 4-character string like "GRBG"
       # Each character represents one pixel in the 2x2 unit cell
-      p00 = pattern[0] # (0,0)
-      p01 = pattern[1] # (0,1)
-      p10 = pattern[2] # (1,0)
-      p11 = pattern[3] # (1,1)
 
       # Place known values
       height.times do |y|

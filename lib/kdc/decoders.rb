@@ -90,8 +90,8 @@ module KDC
           entry_start = 8 + 2 + i * 12
           io.pos = entry_start
           tag = io.read(2).unpack1("n")
-          type = io.read(2).unpack1("n")
-          count = io.read(4).unpack1("N")
+          io.read(2) # type (unused)
+          io.read(4) # count (unused)
           value = io.read(4).unpack1("N")
 
           if tag == 0x0111
@@ -167,8 +167,8 @@ module KDC
         entry_start = 8 + 2 + i * 12
         io.pos = entry_start
         tag = io.read(2).unpack1("n")
-        type = io.read(2).unpack1("n")
-        count = io.read(4).unpack1("N")
+        io.read(2) # type (unused)
+        io.read(4) # count (unused)
         value = io.read(4).unpack1("N")
 
         if tag == 0x0111

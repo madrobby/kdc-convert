@@ -140,7 +140,6 @@ module KDC
     def correct_aspect_ratio
       return unless @demosaiced_image
 
-      src_height = @demosaiced_image.length
       src_width = @demosaiced_image[0].length
 
       # Calculate target dimensions

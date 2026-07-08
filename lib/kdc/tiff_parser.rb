@@ -195,7 +195,7 @@ module KDC
           data = io.read(count)
           io.pos = pos
           data ? data.bytes : []
-        rescue => e
+        rescue
           []
         end
       end
@@ -315,11 +315,9 @@ module KDC
       # Get entries from first IFD
       entries = ifds.first&.entries || []
 
-      # Find Make and Model
-      make_entry = find_tag(entries, TAG_MAKE)
+      # Find Model
       model_entry = find_tag(entries, TAG_MODEL)
 
-      make = make_entry&.value
       model = model_entry&.value
 
       # Detect camera

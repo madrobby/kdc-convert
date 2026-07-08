@@ -74,32 +74,22 @@ module KDC
 
       # Process in 3-byte (RGB) groups
       0.step(row_bytes - 1, 3) do |x|
-        a = prev[x] || 0
-        b = prev[x + 1] || 0
-        c = prev[x + 2] || 0
+        # Paeth predictor: a=left, b=above, c=upper-left
+        a = x >= 3 ? curr[x - 1] : 0
+        b = prev[x] || 0
+        c = (x >= 3 && prev[x - 1]) ? prev[x - 1] : 0
 
-        if x >= 3
-          pa = curr[x - 3]
-          pb = curr[x - 2]
-          pc = curr[x - 1]
-        else
-          pa = 0
-          pb = 0
-          pc = 0
-        end
-
-        # Paeth predictor
-        p = pa + pb - pc
-        pa_abs = (p - pa).abs
-        pb_abs = (p - pb).abs
-        pc_abs = (p - pc).abs
+        p = a + b - c
+        pa_abs = (p - a).abs
+        pb_abs = (p - b).abs
+        pc_abs = (p - c).abs
 
         if pa_abs <= pb_abs && pa_abs <= pc_abs
-          predictor = pa
+          predictor = a
         elsif pb_abs <= pc_abs
-          predictor = pb
+          predictor = b
         else
-          predictor = pc
+          predictor = c
         end
 
         curr[x] = (curr[x] - predictor).clamp(0, 255)

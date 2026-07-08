@@ -53,7 +53,7 @@ class PNGWriterTest < Minitest::Test
       
       # Use file command to verify
       result = `file #{output}`
-      assert_match /20 x 10/, result
+      assert_match(/20 x 10/, result)
     end
   end
 end
