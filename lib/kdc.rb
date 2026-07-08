@@ -5,6 +5,7 @@ require_relative "kdc/decoders"
 require_relative "kdc/demosaic"
 require_relative "kdc/converter"
 require_relative "kdc/tiff_writer"
+require_relative "kdc/png_writer"
 
 module KDC
   # Main entry point for KDC conversion
@@ -35,13 +36,14 @@ module KDC
       puts "Usage:"
       puts "  kdc <file.kdc>                    Show metadata"
       puts "  kdc -m <file.kdc>                 Show metadata"
-      puts "  kdc -c <file.kdc> -o <output.tif> Convert to TIFF"
+      puts "  kdc -c <file.kdc> -o <output>     Convert to TIFF or PNG"
       puts "  kdc --help                        Show this help"
       puts
       puts "Options:"
       puts "  -m, --metadata            Show KDC metadata"
-      puts "  -c, --convert             Convert KDC to TIFF"
+      puts "  -c, --convert             Convert KDC to image"
       puts "  -o, --output              Output file path"
+      puts "  -f, --format              Output format: tif or png (default: auto-detect from -o extension)"
       puts "  --no-color-correction     Skip color correction step"
       puts "  -h, --help                Show help"
     end
@@ -78,8 +80,9 @@ module KDC
       output ||= file.sub(/\.kdc$/i, ".tif")
 
       no_color_correction = args.include?("--no-color-correction")
+      format = resolve_format(args, output)
 
-      puts "Converting #{file} -> #{output}"
+      puts "Converting #{file} -> #{output} (#{format})"
 
       color_lut = if no_color_correction
                     nil
@@ -90,7 +93,12 @@ module KDC
 
       converter = KDC::Converter.new(file, color_lut: color_lut)
       begin
-        converter.convert_to_tiff(output)
+        case format
+        when "png"
+          converter.convert_to_png(output)
+        else
+          converter.convert_to_tiff(output)
+        end
         puts "Saved to #{output}"
         0
       rescue => e
@@ -115,6 +123,23 @@ module KDC
       return nil unless idx && idx < args.length - 1
 
       args[idx + 1]
+    end
+
+    def self.resolve_format(args, output)
+      # -f flag overrides everything
+      format_idx = args.index("-f") || args.index("--format")
+      if format_idx && format_idx < args.length - 1
+        fmt = args[format_idx + 1].downcase
+        return "png" if fmt == "png"
+        return "tif" if fmt == "tif"
+        warn "Unknown format '#{fmt}', defaulting to tif"
+        return "tif"
+      end
+
+      # Auto-detect from output extension
+      ext = File.extname(output).downcase.delete(".")
+      return "png" if ext == "png"
+      "tif"
     end
 
     def self.format_tag_name(tag)

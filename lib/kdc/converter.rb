@@ -4,6 +4,7 @@ require_relative "tiff_parser"
 require_relative "decoders"
 require_relative "demosaic"
 require_relative "tiff_writer"
+require_relative "png_writer"
 require_relative "color_correction"
 
 module KDC
@@ -68,6 +69,16 @@ module KDC
         )
       end
 
+      writer.write(output_path)
+      output_path
+    end
+
+    # Convert and save to PNG file
+    def convert_to_png(output_path)
+      image = convert
+
+      writer = PNGWriter.new(image[0].length, image.length)
+      writer.set_image_data(image)
       writer.write(output_path)
       output_path
     end
