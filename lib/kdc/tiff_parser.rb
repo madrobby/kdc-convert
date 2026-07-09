@@ -38,6 +38,7 @@ module KDC
   TAG_DATETIME_ORIGINAL = 0x9003
   TAG_LIGHT_SOURCE      = 0x828F
   TAG_MAKER_NOTE        = 0x9216
+  TAG_MAIN_IMAGE_OFFSET = 0x014A
 
   # Camera model strings
   MODEL_DC120 = "Kodak DC120 ZOOM Digital Camera"
@@ -82,6 +83,7 @@ module KDC
   KDCMetadata = Struct.new(
     :header,
     :ifds,
+    :second_ifd,
     :camera_model,
     :raw_width,
     :raw_height,
@@ -323,10 +325,22 @@ module KDC
       # Detect camera
       camera = detect_camera(model)
 
-      # Extract key metadata
-      comp_entry = find_tag(entries, TAG_COMPRESSION)
-      offset_entry = find_tag(entries, TAG_STRIP_OFFSETS)
-      bytes_entry = find_tag(entries, TAG_STRIP_BYTE_COUNTS)
+      # Extract key metadata, preferring the second IFD (main image) if present
+      second_ifd = nil
+      main_offset_tag = find_tag(entries, TAG_MAIN_IMAGE_OFFSET)
+      if main_offset_tag && main_offset_tag.value && main_offset_tag.value > 0
+        begin
+          second_ifd = parse_ifd(io, main_offset_tag.value, header.byte_order)
+        rescue => e
+          warn "Warning: Failed to parse second IFD at offset #{main_offset_tag.value}: #{e.message}"
+          second_ifd = nil
+        end
+      end
+
+      second_entries = second_ifd&.entries || []
+      comp_entry = find_tag(second_entries, TAG_COMPRESSION) || find_tag(entries, TAG_COMPRESSION)
+      offset_entry = find_tag(second_entries, TAG_STRIP_OFFSETS) || find_tag(entries, TAG_STRIP_OFFSETS)
+      bytes_entry = find_tag(second_entries, TAG_STRIP_BYTE_COUNTS) || find_tag(entries, TAG_STRIP_BYTE_COUNTS)
 
       compression = comp_entry&.value || 1
       data_offset = offset_entry&.value || 0
@@ -350,8 +364,8 @@ module KDC
                        1.0
                      end
 
-      # White level (default for DC120)
-      white_level = 510
+      # White level: 510 for flash JPEG, 255 for daylight JPEG or uncompressed raw
+      white_level = compression == 7 ? 510 : 255
 
       # Black level (DC120 has 0)
       black_level = [0, 0, 0, 0]
@@ -362,6 +376,7 @@ module KDC
       KDCMetadata.new(
         header: header,
         ifds: ifds,
+        second_ifd: second_ifd,
         camera_model: camera,
         raw_width: raw_width,
         raw_height: raw_height,

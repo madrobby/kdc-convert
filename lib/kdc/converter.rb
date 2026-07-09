@@ -93,7 +93,12 @@ module KDC
 
     # Step 2: Decode raw Bayer data
     def decode_raw
-      @raw_image = DC120Decoder.new(@kdc_path, compressed: true).decode
+      @raw_image = DC120Decoder.new(
+        @kdc_path,
+        compressed: @metadata.compression == 7,
+        data_offset: @metadata.data_offset,
+        data_size: @metadata.data_size
+      ).decode
     end
 
     # Step 3: Apply black level subtraction

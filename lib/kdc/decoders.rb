@@ -22,9 +22,11 @@ module KDC
     MUL = [162, 192, 187, 92].freeze
     ADD = [0, 636, 424, 212].freeze
 
-    def initialize(file_path, compressed: true)
+    def initialize(file_path, compressed: true, data_offset: 0, data_size: 0)
       @file_path = file_path
       @compressed = compressed
+      @data_offset = data_offset
+      @data_size = data_size
     end
 
     # Decode raw Bayer data
@@ -55,7 +57,7 @@ module KDC
 
           RAW_WIDTH.times do |col|
             src_col = (col + shift) % RAW_WIDTH
-            bayer[row][col] = row_data[src_col].ord << 8
+            bayer[row][col] = row_data[src_col].ord
           end
         end
       end
@@ -80,29 +82,8 @@ module KDC
     # Extract JPEG data from KDC file (after thumbnail)
     def extract_jpeg_data
       File.open(@file_path, "rb") do |io|
-        io.pos = 8
-        num_entries = io.read(2).unpack1("n")
-
-        strip_offset = nil
-        strip_bytes = nil
-
-        num_entries.times do |i|
-          entry_start = 8 + 2 + i * 12
-          io.pos = entry_start
-          tag = io.read(2).unpack1("n")
-          io.read(2) # type (unused)
-          io.read(4) # count (unused)
-          value = io.read(4).unpack1("N")
-
-          if tag == 0x0111
-            strip_offset = value
-          elsif tag == 0x0117
-            strip_bytes = value
-          end
-        end
-
-        io.pos = strip_offset + strip_bytes
-        io.read
+        io.pos = @data_offset
+        io.read(@data_size)
       end
     end
 
@@ -157,28 +138,7 @@ module KDC
 
     # Find data offset (after thumbnail)
     def find_data_offset(io)
-      io.pos = 8
-      num_entries = io.read(2).unpack1("n")
-
-      strip_offset = nil
-      strip_bytes = nil
-
-      num_entries.times do |i|
-        entry_start = 8 + 2 + i * 12
-        io.pos = entry_start
-        tag = io.read(2).unpack1("n")
-        io.read(2) # type (unused)
-        io.read(4) # count (unused)
-        value = io.read(4).unpack1("N")
-
-        if tag == 0x0111
-          strip_offset = value
-        elsif tag == 0x0117
-          strip_bytes = value
-        end
-      end
-
-      strip_offset + strip_bytes
+      @data_offset
     end
   end
 end
