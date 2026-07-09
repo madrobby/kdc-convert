@@ -76,9 +76,10 @@ module KDC
     # Convert and save to PNG file
     def convert_to_png(output_path)
       image = convert
+      png_image = scale_to_8bit(image)
 
-      writer = PNGWriter.new(image[0].length, image.length)
-      writer.set_image_data(image)
+      writer = PNGWriter.new(png_image[0].length, png_image.length)
+      writer.set_image_data(png_image)
       writer.write(output_path)
       output_path
     end
@@ -132,6 +133,24 @@ module KDC
             (g * scale_factor).round,
             (b * scale_factor).round
           ].map { |v| [v, 65535].min }
+        end
+      end
+    end
+
+    # Scale 16-bit image to 8-bit (for PNG output)
+    def scale_to_8bit(image)
+      return nil unless image
+
+      height = image.length
+      width = image[0].length
+      Array.new(height) do |y|
+        Array.new(width) do |x|
+          r, g, b = image[y][x]
+          [
+            (r / 256).round,
+            (g / 256).round,
+            (b / 256).round
+          ].map { |v| [v, 255].min }
         end
       end
     end

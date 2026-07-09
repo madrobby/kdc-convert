@@ -3,14 +3,12 @@
 require "zlib"
 
 module KDC
-  # Write 16-bit RGB PNG files
   class PNGWriter
-    PNG_SIGNATURE = "\x89PNG\r\n\x1a\n".b
+    PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10].pack("C8")
 
     def initialize(width, height)
       @width = width
       @height = height
-      @image_data = nil
     end
 
     def set_image_data(image_data)
@@ -18,92 +16,71 @@ module KDC
     end
 
     def write(output_path)
-      chunks = []
-      chunks << write_chunk("IHDR", build_ihdr)
-      chunks << write_chunk("IDAT", build_idat)
-      chunks << write_chunk("IEND", "")
+      pixels = expand_pixels
+      validate_pixels(pixels)
 
-      File.write(output_path, PNG_SIGNATURE + chunks.join)
+      out = String.new(encoding: Encoding::BINARY)
+      out << PNG_SIGNATURE
+      out << build_ihdr_chunk
+      out << build_idat_chunk(pixels)
+      out << build_iend_chunk
+
+      File.binwrite(output_path, out)
     end
 
     private
 
-    def build_ihdr
-      # width, height, bit_depth=16, color_type=2 (RGB), compression=0, filter=0, interlace=0
-      [@width, @height, 16, 2, 0, 0, 0].pack("NNCCCCC")
+    def expand_pixels
+      @image_data.flat_map { |row| row.flat_map { |r, g, b| [r, g, b] } }.pack("C*")
     end
 
-    def build_idat
-      raw_data = build_raw_scanlines
-      Zlib::Deflate.deflate(raw_data, 9)
+    def validate_pixels(pixels)
+      expected = @width * @height * 3
+      unless pixels.bytesize == expected
+        raise ArgumentError, "pixel data size #{pixels.bytesize} != expected #{expected} (#{@width}x#{@height}x3)"
+      end
     end
 
-    def build_raw_scanlines
-      height = @image_data.length
-      width = @image_data[0].length
-      prev_row = nil
-      result = "".b
+    def build_ihdr_chunk
+      data = [
+        @width,
+        @height,
+        8,  # bit depth
+        2,  # color type: RGB
+        0,  # compression method
+        0,  # filter method
+        0   # interlace method
+      ].pack("NNC5")
+      make_chunk("IHDR", data)
+    end
 
-      height.times do |y|
-        curr_row = @image_data[y]
+    def build_idat_chunk(pixels)
+      raw = build_raw_data(pixels)
+      compressed = Zlib::Deflate.deflate(raw, 6)
+      make_chunk("IDAT", compressed)
+    end
 
-        # Build unfiltered row: [R, G, B, R, G, B, ...] as 16-bit big-endian
-        unfiltered = "".b
-        curr_row.each do |r, g, b|
-          unfiltered += [r, g, b].pack("n*")
-        end
+    def build_raw_data(pixels)
+      stride = @width * 3
+      raw = String.new(encoding: Encoding::BINARY, capacity: @height * (1 + stride))
 
-        # Apply Paeth filter
-        filtered = apply_paeth_filter(unfiltered, prev_row, width * 3)
-
-        # Prepend filter byte (4 = Paeth)
-        result << [4].pack("C")
-        result << filtered
-
-        prev_row = unfiltered
+      @height.times do |y|
+        row_start = y * stride
+        row = pixels.byteslice(row_start, stride)
+        raw << "\x00".b << row
       end
 
-      result
+      raw
     end
 
-    def apply_paeth_filter(current, prev, row_bytes)
-      return current.dup if prev.nil?
-
-      curr = current.bytes.dup
-      prev = prev.bytes
-
-      # Process in 3-byte (RGB) groups
-      0.step(row_bytes - 1, 3) do |x|
-        # Paeth predictor: a=left, b=above, c=upper-left
-        a = x >= 3 ? curr[x - 1] : 0
-        b = prev[x] || 0
-        c = (x >= 3 && prev[x - 1]) ? prev[x - 1] : 0
-
-        p = a + b - c
-        pa_abs = (p - a).abs
-        pb_abs = (p - b).abs
-        pc_abs = (p - c).abs
-
-        if pa_abs <= pb_abs && pa_abs <= pc_abs
-          predictor = a
-        elsif pb_abs <= pc_abs
-          predictor = b
-        else
-          predictor = c
-        end
-
-        curr[x] = (curr[x] - predictor).clamp(0, 255)
-        curr[x + 1] = (curr[x + 1] - predictor).clamp(0, 255)
-        curr[x + 2] = (curr[x + 2] - predictor).clamp(0, 255)
-      end
-
-      curr.pack("C*")
+    def make_chunk(type, data)
+      data = data.b
+      crc = Zlib.crc32(type + data)
+      [data.bytesize].pack("N") + type + data + [crc].pack("N")
     end
 
-    def write_chunk(type, data)
-      length = [data.bytesize].pack("N")
-      crc = [Zlib.crc32(type + data)].pack("N")
-      length + type.b + data + crc
+    def build_iend_chunk
+      make_chunk("IEND", "")
     end
   end
 end
