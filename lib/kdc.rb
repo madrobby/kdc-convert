@@ -24,18 +24,19 @@ module KDC
     end
 
     def self.parse_options(args)
-      opts = {
-        verbose: false,
-        convert: false,
-        metadata: false,
-        sharpen: nil,
-        no_color_correction: false,
-        no_color: false,
-        output: nil,
-        format: nil,
-        kdc_file: nil,
-        help: false,
-      }
+        opts = {
+          verbose: false,
+          convert: false,
+          metadata: false,
+          sharpen: nil,
+          no_color_correction: false,
+          no_color: false,
+          no_remove_stuck_pixels: false,
+          output: nil,
+          format: nil,
+          kdc_file: nil,
+          help: false,
+        }
 
       parser = OptionParser.new do |o|
         o.banner = "Usage: kdc [options] <file.kdc>"
@@ -54,6 +55,7 @@ module KDC
         o.on("-v", "--verbose", "Show step-by-step progress with timings") { opts[:verbose] = true }
         o.on("--no-color", "Disable colored output") { opts[:no_color] = true }
         o.on("--no-color-correction", "Skip color correction step") { opts[:no_color_correction] = true }
+        o.on("--no-remove-stuck-pixels", "Skip stuck pixel removal after JPEG decode") { opts[:no_remove_stuck_pixels] = true }
         o.on("--sharpen[=r,a,t]", "Apply unsharp mask sharpening (opt-in)\n" \
                                    "Bare flag or =auto for medium strength\n" \
                                    "=r,a,t for custom radius,amount,threshold") do |v|
@@ -93,6 +95,7 @@ module KDC
         ["-v, --verbose", "Show step-by-step progress with timings"],
         ["--no-color", "Disable colored output"],
         ["--no-color-correction", "Skip color correction step"],
+        ["--no-remove-stuck-pixels", "Skip stuck pixel removal after JPEG decode"],
         ["--sharpen[=r,a,t]", "Apply unsharp mask sharpening (opt-in)\n" \
                                "    Bare flag or =auto for medium strength\n" \
                                "    =r,a,t for custom radius,amount,threshold"],
@@ -143,6 +146,7 @@ module KDC
       end
       output ||= (file && file.sub(/\.kdc$/i, ".tif"))
       no_color_correction = opts[:no_color_correction]
+      remove_stuck_pixels = !opts[:no_remove_stuck_pixels]
       sharpen = opts[:sharpen]
       format = resolve_format(opts[:format], output)
 
@@ -155,7 +159,7 @@ module KDC
                     KDC::ColorCorrection.load_lut(lut_path)
                   end
 
-      converter = KDC::Converter.new(file, color_lut: color_lut, sharpen: sharpen)
+      converter = KDC::Converter.new(file, color_lut: color_lut, sharpen: sharpen, remove_stuck_pixels: remove_stuck_pixels)
       begin
         case format
         when "png"

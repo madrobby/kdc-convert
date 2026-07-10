@@ -20,7 +20,7 @@ module KDC
 
     attr_reader :metadata, :raw_image, :demosaiced_image, :color_params, :sharpen_params, :flash_fired
 
-    def initialize(kdc_path, color_lut: nil, sharpen: nil)
+    def initialize(kdc_path, color_lut: nil, sharpen: nil, remove_stuck_pixels: true)
       @kdc_path = kdc_path
       @metadata = nil
       @raw_image = nil
@@ -28,6 +28,7 @@ module KDC
       @color_params = color_lut
       @sharpen_params = sharpen
       @flash_fired = nil
+      @remove_stuck_pixels = remove_stuck_pixels
     end
 
     # Full conversion pipeline
@@ -108,7 +109,8 @@ module KDC
         @kdc_path,
         compressed: @metadata.compression == 7,
         data_offset: @metadata.data_offset,
-        data_size: @metadata.data_size
+        data_size: @metadata.data_size,
+        remove_stuck_pixels: @remove_stuck_pixels
       ).decode
     end
 
