@@ -22,11 +22,12 @@ module KDC
     MUL = [162, 192, 187, 92].freeze
     ADD = [0, 636, 424, 212].freeze
 
-    def initialize(file_path, compressed: true, data_offset: 0, data_size: 0)
+    def initialize(file_path, compressed: true, data_offset: 0, data_size: 0, remove_stuck_pixels: true)
       @file_path = file_path
       @compressed = compressed
       @data_offset = data_offset
       @data_size = data_size
+      @remove_stuck_pixels = remove_stuck_pixels
     end
 
     # Decode raw Bayer data
@@ -74,6 +75,9 @@ module KDC
 
       # Decode JPEG to RGB using pure_jpeg
       rgb_image = PureJPEG.read(swapped)
+
+      # Remove stuck pixels from the decoded JPEG data before Bayer expansion
+      rgb_image = remove_stuck_pixels(rgb_image) if @remove_stuck_pixels
 
       # Expand RGB to Bayer GRBG (matching LibRaw kodak_jpeg_load_raw)
       expand_to_bayer(rgb_image)
@@ -139,6 +143,63 @@ module KDC
     # Find data offset (after thumbnail)
     def find_data_offset(io)
       @data_offset
+    end
+
+    # Detect and replace stuck pixels in a decoded JPEG RGB image.
+    #
+    # A pixel is stuck in a channel if its value deviates from the local
+    # neighbor mean by more than 20% of the local neighbor range. The
+    # replacement value is the per-channel median of the 4-connected
+    # neighbors. Adaptive: in noisy areas the range is wide so few pixels
+    # are flagged; in clean areas the range is tight so outliers are caught.
+    # Skips near-uniform areas where the local range is <= 15, since a
+    # relative threshold on a tiny range produces false positives from
+    # normal JPEG noise.
+    #
+    # Operates in-place on the image's pixel data.
+    def remove_stuck_pixels(rgb_image)
+      height = rgb_image.height
+      width = rgb_image.width
+      return rgb_image if height <= 2 || width <= 2
+
+      height.times do |y|
+        width.times do |x|
+          neighbors = []
+          [[0, -1], [0, 1], [-1, 0], [1, 0]].each do |dy, dx|
+            ny, nx = y + dy, x + dx
+            next unless ny >= 0 && ny < height && nx >= 0 && nx < width
+            neighbors << rgb_image[nx, ny]
+          end
+          next if neighbors.empty?
+
+          p = rgb_image[x, y]
+          stuck = false
+          r_out = g_out = b_out = nil
+
+          3.times do |c|
+            vals = neighbors.map { |n| n.send(%i[r g b][c]) }
+            mean = vals.sum.to_f / vals.length
+            range = vals.max - vals.min
+            next unless range > 15
+            stuck = true if (p.send(%i[r g b][c]) - mean).abs > 0.50 * range
+          end
+
+          next unless stuck
+
+          new_r = median_of(neighbors.map(&:r))
+          new_g = median_of(neighbors.map(&:g))
+          new_b = median_of(neighbors.map(&:b))
+          rgb_image[x, y] = PureJPEG::Source::Pixel.new(new_r, new_g, new_b)
+        end
+      end
+
+      rgb_image
+    end
+
+    def median_of(values)
+      sorted = values.sort
+      n = sorted.length
+      n.odd? ? sorted[n / 2] : ((sorted[n / 2 - 1] + sorted[n / 2]) / 2)
     end
   end
 end
