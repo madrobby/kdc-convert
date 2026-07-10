@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "optparse"
 require_relative "kdc/tiff_parser"
 require_relative "kdc/decoders"
 require_relative "kdc/demosaic"
@@ -12,23 +13,63 @@ module KDC
   # Main entry point for KDC conversion
   class App
     def self.run(args)
-      if args.empty? || args.include?("--help") || args.include?("-h")
+      opts = parse_options(args)
+      if opts[:help]
         print_usage
         return 0
       end
 
-      verbose = args.delete("-v") || args.delete("--verbose")
+      mode = opts[:convert] ? :convert : :metadata
+      run_mode(mode, opts)
+    end
 
-      if args.include?("--metadata") || args.include?("-m")
-        return run_metadata(args)
+    def self.parse_options(args)
+      opts = {
+        verbose: false,
+        convert: false,
+        metadata: false,
+        sharpen: nil,
+        no_color_correction: false,
+        output: nil,
+        format: nil,
+        kdc_file: nil,
+        help: false,
+      }
+
+      parser = OptionParser.new do |o|
+        o.banner = "Usage: kdc [options] <file.kdc>"
+
+        o.on("-m", "--metadata", "Show KDC metadata") { opts[:metadata] = true }
+        o.on("-c", "--convert", "Convert KDC to TIFF/PNG") { opts[:convert] = true }
+        o.on("-o", "--output PATH", "Output file path") { |v| opts[:output] = v }
+        o.on("-f", "--format {tif|png}", "Output format: tif or png (default: auto-detect from -o extension)") do |v|
+          if %w[tif png].include?(v.downcase)
+            opts[:format] = v.downcase
+          else
+            warn "Unknown format '#{v}', defaulting to tif"
+            opts[:format] = "tif"
+          end
+        end
+        o.on("-v", "--verbose", "Show step-by-step progress with timings") { opts[:verbose] = true }
+        o.on("--no-color-correction", "Skip color correction step") { opts[:no_color_correction] = true }
+        o.on("--sharpen[=r,a,t]", "Apply unsharp mask sharpening (opt-in)\n" \
+                                   "Bare flag or =auto for medium strength\n" \
+                                   "=r,a,t for custom radius,amount,threshold") do |v|
+          opts[:sharpen] = parse_sharpen_value(v || "auto")
+        end
+        o.on("-h", "--help", "Show help") { opts[:help] = true }
       end
 
-      if args.include?("--convert") || args.include?("-c")
-        return run_convert(args, verbose)
-      end
+      remaining = parser.parse(args)
+      opts[:kdc_file] = remaining.first
+      opts
+    end
 
-      # Default: show metadata
-      run_metadata(args)
+    def self.run_mode(mode, opts)
+      case mode
+      when :metadata then run_metadata(opts)
+      when :convert  then run_convert(opts)
+      end
     end
 
     private
@@ -55,9 +96,9 @@ module KDC
       puts "  -h, --help                Show help"
     end
 
-    def self.run_metadata(args)
-      file = find_kdc_file(args)
-      return 1 unless file
+    def self.run_metadata(opts)
+      file = opts[:kdc_file]
+      return 1 unless file && File.exist?(file)
 
       puts "Parsing #{file}..."
       metadata = KDC.parse_kdc(file)
@@ -79,16 +120,20 @@ module KDC
       0
     end
 
-    def self.run_convert(args, verbose)
-      file = find_kdc_file(args)
-      return 1 unless file
+    def self.run_convert(opts)
+      file = opts[:kdc_file]
+      return 1 unless file && File.exist?(file)
 
-      output = find_output(args)
-      output ||= file.sub(/\.kdc$/i, ".tif")
-
-      no_color_correction = args.include?("--no-color-correction")
-      sharpen = parse_sharpen(args)
-      format = resolve_format(args, output)
+      output = opts[:output]
+      if output&.start_with?("-")
+        warn "Warning: '#{output}' looks like an option, not a filename"
+        output = nil
+      end
+      output ||= (file && file.sub(/\.kdc$/i, ".tif"))
+      verbose = opts[:verbose]
+      no_color_correction = opts[:no_color_correction]
+      sharpen = opts[:sharpen]
+      format = resolve_format(opts[:format], output)
 
       verbose_log(verbose, "Converting #{file} -> #{output} (#{format})")
 
@@ -124,33 +169,8 @@ module KDC
       end
     end
 
-    def self.find_kdc_file(args)
-      idx = args.index { |a| a.end_with?(".kdc") || a.end_with?(".KDC") }
-      return nil unless idx
-
-      file = args[idx]
-      return nil unless File.exist?(file)
-
-      file
-    end
-
-    def self.find_output(args)
-      idx = args.index("-o") || args.index("--output")
-      return nil unless idx && idx < args.length - 1
-
-      args[idx + 1]
-    end
-
-    def self.resolve_format(args, output)
-      # -f flag overrides everything
-      format_idx = args.index("-f") || args.index("--format")
-      if format_idx && format_idx < args.length - 1
-        fmt = args[format_idx + 1].downcase
-        return "png" if fmt == "png"
-        return "tif" if fmt == "tif"
-        warn "Unknown format '#{fmt}', defaulting to tif"
-        return "tif"
-      end
+    def self.resolve_format(format_flag, output)
+      return format_flag if format_flag && %w[tif png].include?(format_flag)
 
       # Auto-detect from output extension
       ext = File.extname(output).downcase.delete(".")
@@ -182,22 +202,8 @@ module KDC
       puts(message) if verbose
     end
 
-    def self.parse_sharpen(args)
-      sharpen_arg = args.find { |a| a.start_with?("--sharpen") || a.start_with?("--unsharp") }
-      return nil unless sharpen_arg
-
-      args.delete(sharpen_arg)
-
-      val = if sharpen_arg.include?("=")
-              sharpen_arg.sub(/^--sharpen=?|--unsharp=?/, "")
-            else
-              "auto"
-            end
-
-      parse_sharpen_value(val)
-    end
-
     def self.parse_sharpen_value(str)
+      return nil unless str
       if str == "auto" || str.empty?
         { radius: Sharpen::AUTO_RADIUS, amount: Sharpen::AUTO_AMOUNT, threshold: Sharpen::AUTO_THRESHOLD }
       else
