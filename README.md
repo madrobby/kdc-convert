@@ -1,10 +1,14 @@
 # kdc
 
-Pure Ruby KDC file parser and converter for Kodak DC120 and DC50 digital cameras. Ports LibRaw's KDC decoding logic to Ruby.
+Pure Ruby KDC file parser and converter for Kodak DC120 and DC50 digital cameras.
 
 ## Overview
 
 Converts Kodak `.KDC` raw files to 16-bit TIFF images. Handles JPEG-compressed raw data, Bayer demosaic (Menon2007), aspect ratio correction, and color correction via a reference LUT.
+
+## AI disclosure
+
+This library is a hobby project to more conveniently convert images made with decades-old early digital cameras and was largely coded with locally run LLMs. Part of it is a port of some of LibRAW's Kodak-related decoding features.
 
 ## Features
 
