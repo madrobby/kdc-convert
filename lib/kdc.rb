@@ -49,6 +49,9 @@ module KDC
       puts "  -f, --format              Output format: tif or png (default: auto-detect from -o extension)"
       puts "  -v, --verbose             Show step-by-step progress with timings"
       puts "  --no-color-correction     Skip color correction step"
+      puts "  --sharpen[=r,a,t]         Apply unsharp mask sharpening (opt-in)"
+      puts "                              bare flag or =auto for medium strength"
+      puts "                              =r,a,t for custom radius,amount,threshold"
       puts "  -h, --help                Show help"
     end
 
@@ -84,6 +87,7 @@ module KDC
       output ||= file.sub(/\.kdc$/i, ".tif")
 
       no_color_correction = args.include?("--no-color-correction")
+      sharpen = parse_sharpen(args)
       format = resolve_format(args, output)
 
       verbose_log(verbose, "Converting #{file} -> #{output} (#{format})")
@@ -95,7 +99,7 @@ module KDC
                     KDC::ColorCorrection.load_lut(lut_path)
                   end
 
-      converter = KDC::Converter.new(file, color_lut: color_lut, verbose: verbose)
+      converter = KDC::Converter.new(file, color_lut: color_lut, sharpen: sharpen, verbose: verbose)
       begin
         case format
         when "png"
@@ -176,6 +180,34 @@ module KDC
 
     def self.verbose_log(verbose, message)
       puts(message) if verbose
+    end
+
+    def self.parse_sharpen(args)
+      sharpen_arg = args.find { |a| a.start_with?("--sharpen") || a.start_with?("--unsharp") }
+      return nil unless sharpen_arg
+
+      args.delete(sharpen_arg)
+
+      val = if sharpen_arg.include?("=")
+              sharpen_arg.sub(/^--sharpen=?|--unsharp=?/, "")
+            else
+              "auto"
+            end
+
+      parse_sharpen_value(val)
+    end
+
+    def self.parse_sharpen_value(str)
+      if str == "auto" || str.empty?
+        { radius: Sharpen::AUTO_RADIUS, amount: Sharpen::AUTO_AMOUNT, threshold: Sharpen::AUTO_THRESHOLD }
+      else
+        parts = str.split(",").map(&:to_f)
+        {
+          radius:    parts[0] && parts[0] > 0 ? parts[0] : Sharpen::AUTO_RADIUS,
+          amount:    parts[1] && parts[1] > 0 ? parts[1] : Sharpen::AUTO_AMOUNT,
+          threshold: parts[2] ? parts[2] : Sharpen::AUTO_THRESHOLD
+        }
+      end
     end
   end
 end

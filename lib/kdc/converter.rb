@@ -6,6 +6,7 @@ require_relative "demosaic"
 require_relative "tiff_writer"
 require_relative "png_writer"
 require_relative "color_correction"
+require_relative "sharpen"
 require_relative "util"
 
 module KDC
@@ -17,14 +18,15 @@ module KDC
     OUTPUT_HEIGHT = 976
     PIXEL_ASPECT  = 1.5345911949685533
 
-    attr_reader :metadata, :raw_image, :demosaiced_image, :color_params, :flash_fired
+    attr_reader :metadata, :raw_image, :demosaiced_image, :color_params, :sharpen_params, :flash_fired
 
-    def initialize(kdc_path, color_lut: nil, verbose: false)
+    def initialize(kdc_path, color_lut: nil, sharpen: nil, verbose: false)
       @kdc_path = kdc_path
       @metadata = nil
       @raw_image = nil
       @demosaiced_image = nil
       @color_params = color_lut
+      @sharpen_params = sharpen
       @flash_fired = nil
       @verbose = verbose
     end
@@ -40,7 +42,8 @@ module KDC
         ["Demosaic", :demosaic_image],
         ["Scale to 16-bit", :scale_to_16bit],
         ["Correct aspect ratio", :correct_aspect_ratio],
-        ["Color correction", :apply_color_correction]
+        ["Color correction", :apply_color_correction],
+        ["Apply sharpening", :apply_sharpening]
       ]
 
       steps.each_with_index do |(name, method), i|
@@ -196,6 +199,19 @@ module KDC
         @demosaiced_image,
         effective[:params],
         effective[:stretch]
+      )
+    end
+
+    # Step 8: Apply unsharp mask sharpening (opt-in)
+    def apply_sharpening
+      return unless @sharpen_params
+
+      verbose_log("Sharpen: radius=#{@sharpen_params[:radius]}, amount=#{@sharpen_params[:amount]}, threshold=#{@sharpen_params[:threshold]}")
+      @demosaiced_image = Sharpen.unsharp_mask(
+        @demosaiced_image,
+        radius: @sharpen_params[:radius],
+        amount: @sharpen_params[:amount],
+        threshold: @sharpen_params[:threshold]
       )
     end
 
