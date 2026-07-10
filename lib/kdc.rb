@@ -160,7 +160,7 @@ module KDC
         actual_width = img[0].length
         actual_height = img.length
 
-        verbose_log(verbose, "Saved to #{output} — #{format.upcase}, #{bit_depth}-bit, #{actual_width}x#{actual_height}, #{Util.human_size(file_size)}")
+        verbose_log(verbose, "Saved to #{output} — #{format.upcase}, #{bit_depth}-bit, #{Util.format_resolution(actual_width, actual_height)}, #{Util.human_size(file_size)}")
         0
       rescue => e
         puts "Error: #{e.message}"

@@ -2,10 +2,6 @@
 
 module KDC
   module Util
-    def self.now_ms
-      (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000).round
-    end
-
     def self.now
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
@@ -24,6 +20,10 @@ module KDC
 
     def self.format_duration(seconds)
       "%.3fs" % seconds
+    end
+
+    def self.format_resolution(width, height)
+      "#{width}×#{height}"
     end
   end
 end
