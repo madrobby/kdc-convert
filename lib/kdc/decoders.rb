@@ -7,7 +7,6 @@ module KDC
   # Ports the logic from LibRaw's kodak_dc120_load_raw() and kodak_jpeg_load_raw()
   #
   # DC120 stores raw data as JPEG YCbCr (compressed) or raw 8-bit (uncompressed).
-  # All sample files are compressed.
   #
   # The JPEG decoder outputs RGB, then we expand to Bayer GRBG pattern:
   #   RAW(row+0, col+0) = G (from JPEG green channel)
@@ -43,9 +42,10 @@ module KDC
     private
 
     # Uncompressed decoder (kodak_dc120_load_raw)
-    # Reads 848 bytes per row with per-row shift
+    # Reads 848 bytes per row with per-row shift, widens to 16-bit,
+    # and removes stuck pixels from the Bayer array.
     def decode_uncompressed
-      bayer = Array.new(RAW_HEIGHT) { Array.new(RAW_WIDTH, 0) }
+      raw_bayer = Array.new(RAW_HEIGHT) { Array.new(RAW_WIDTH, 0) }
 
       File.open(@file_path, "rb") do |io|
         io.pos = find_data_offset(io)
@@ -58,10 +58,16 @@ module KDC
 
           RAW_WIDTH.times do |col|
             src_col = (col + shift) % RAW_WIDTH
-            bayer[row][col] = row_data[src_col].ord
+            raw_bayer[row][col] = row_data[src_col].ord
           end
         end
       end
+
+      # Values stay 0-255, matching LibRaw (ushort cast preserves the 8-bit value)
+      bayer = raw_bayer
+
+      # Remove stuck pixels from Bayer array if enabled
+      # bayer = remove_stuck_pixels_bayer(bayer) if @remove_stuck_pixels
 
       bayer
     end
@@ -200,6 +206,87 @@ module KDC
       sorted = values.sort
       n = sorted.length
       n.odd? ? sorted[n / 2] : ((sorted[n / 2 - 1] + sorted[n / 2]) / 2)
+    end
+
+    # Detect and replace stuck pixels in a 16-bit Bayer GRBG array.
+    #
+    # For each pixel, collects same-color 4-connected neighbors (distance 2 in
+    # the Bayer grid), computes the neighbor range, and flags the pixel as
+    # stuck if its deviation from the mean exceeds 50% of the range (same
+    # thresholds as the RGB path). Replacement value is the median of
+    # same-color neighbors.
+    #
+    # The uncompressed raw data has per-row cyclic shifting applied, which
+    # scrambles the Bayer pattern in coordinate space. This method unshifts
+    # each row to reconstruct the clean GRBG grid, runs detection, then
+    # re-applies the shift.
+    def remove_stuck_pixels_bayer(bayer)
+      height = bayer.length
+      width = bayer[0].length
+      return bayer if height <= 4 || width <= 4
+
+      # Collect shift amounts per row
+      shifts = height.times.map { |row| (row * MUL[row & 3] + ADD[row & 3]) % width }
+
+      # Unshift rows to reconstruct clean Bayer grid
+      grid = bayer.each_with_index.map { |row, row_idx| unshift_row(row, shifts[row_idx]) }
+
+      # Run stuck pixel detection on clean GRBG grid
+      result = grid.each_with_index.map do |row, y|
+        row.each_with_index.map do |_, x|
+          neighbors = same_color_neighbors(grid, x, y, height, width)
+          process_bayer_pixel(grid, x, y, neighbors)
+        end
+      end
+
+      # Re-apply shift to each row
+      result.each_with_index.map { |row, row_idx| shift_row(row, shifts[row_idx]) }
+    end
+
+    # Reverse the per-row cyclic shift to restore original column ordering
+    def unshift_row(row, shift)
+      return row if shift == 0
+      row.dup.rotate(-shift)
+    end
+
+    # Re-apply the per-row cyclic shift
+    def shift_row(row, shift)
+      return row if shift == 0
+      row.dup.rotate(shift)
+    end
+
+    # Collect same-color 4-connected neighbors in GRBG Bayer pattern.
+    # Neighbor offset is (0,±2) and (±2,0) for all color types.
+    def same_color_neighbors(bayer, x, y, height, width)
+      neighbors = []
+      [[0, 2], [0, -2], [2, 0], [-2, 0]].each do |dy, dx|
+        ny, nx = y + dy, x + dx
+        next unless ny >= 0 && ny < height && nx >= 0 && nx < width
+        neighbors << bayer[ny][nx]
+      end
+      neighbors
+    end
+
+    # Check if a pixel is stuck and return replacement value.
+    # Returns the original value if not stuck.
+    #
+    # More conservative than the RGB path: uses 0.75 threshold and requires
+    # a minimum absolute deviation of 200 (in 16-bit space, ~0.8 in 8-bit).
+    # This prevents flagging valid pixels in textured areas where the Bayer
+    # neighbor sampling (distance 2) sees natural variation.
+    def process_bayer_pixel(grid, x, y, neighbors)
+      return grid[y][x] if neighbors.empty?
+
+      val = grid[y][x]
+      all = [val] + neighbors
+      mean = all.sum.to_f / all.length
+      range = all.max - all.min
+
+      return val if range <= 15
+      return val if (val - mean).abs <= 0.75 * range
+      return val if (val - mean).abs < 200
+
+      median_of(neighbors)
     end
   end
 end

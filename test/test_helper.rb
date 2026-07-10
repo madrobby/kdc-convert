@@ -21,6 +21,10 @@ module TestHelper
     File.join(TEST_IMAGES_PATH, "DC120_1_ref.png")
   end
 
+  def reference_tiff_path_2
+    File.join(TEST_IMAGES_PATH, "DC120_2_ref.tif")
+  end
+
   def convert_to_temp(kdc_file, format: :tif)
     Dir.mktmpdir do |dir|
       ext = format == :tif ? ".tif" : ".png"

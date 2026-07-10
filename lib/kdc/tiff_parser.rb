@@ -364,7 +364,7 @@ module KDC
                        1.0
                      end
 
-      # White level: 510 for flash JPEG, 255 for daylight JPEG or uncompressed raw
+      # White level: 510 for compressed JPEG, 255 for uncompressed (8-bit raw data per LibRaw maximum=0xff)
       white_level = compression == 7 ? 510 : 255
 
       # Black level (DC120 has 0)

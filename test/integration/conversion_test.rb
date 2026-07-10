@@ -64,4 +64,13 @@ class ConversionTest < Minitest::Test
       assert_equal expected_hash, actual_hash, "PNG output should match reference"
     end
   end
+
+  def test_dc120_2_uncompressed_tiff_hash_matches_reference
+    convert_to_temp(image_path("DC120_2.KDC"), format: :tif) do |output|
+      actual_hash = file_sha256(output)
+      expected_hash = file_sha256(reference_tiff_path_2)
+      
+      assert_equal expected_hash, actual_hash, "Uncompressed TIFF output should match reference"
+    end
+  end
 end
