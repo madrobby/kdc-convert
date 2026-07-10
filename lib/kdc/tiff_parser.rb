@@ -208,11 +208,15 @@ module KDC
         str
       else
         # Read from offset
-        pos = io.pos
-        io.pos = raw_value
-        val = io.read(count).force_encoding("ASCII").sub(/\0+\z/, "")
-        io.pos = pos
-        val
+        begin
+          pos = io.pos
+          io.pos = raw_value
+          val = io.read(count)
+          io.pos = pos
+          val ? val.force_encoding("ASCII").sub(/\0+\z/, "") : nil
+        rescue
+          nil
+        end
       end
     when TIFF_TYPE_SHORT
       if count == 1
@@ -224,24 +228,32 @@ module KDC
         end
       else
         # Multiple shorts - read from offset
-        pos = io.pos
-        io.pos = raw_value
-        fmt = byte_order == "II" ? "v" : "n"
-        vals = io.read(count * 2).unpack("#{fmt}*")
-        io.pos = pos
-        vals
+        begin
+          pos = io.pos
+          io.pos = raw_value
+          fmt = byte_order == "II" ? "v" : "n"
+          data = io.read(count * 2)
+          io.pos = pos
+          data ? data.unpack("#{fmt}*") : nil
+        rescue
+          nil
+        end
       end
     when TIFF_TYPE_LONG
       if count == 1
         raw_value
       else
         # Multiple longs - read from offset
-        pos = io.pos
-        io.pos = raw_value
-        fmt = byte_order == "II" ? "V" : "N"
-        vals = io.read(count * 4).unpack("#{fmt}*")
-        io.pos = pos
-        vals
+        begin
+          pos = io.pos
+          io.pos = raw_value
+          fmt = byte_order == "II" ? "V" : "N"
+          data = io.read(count * 4)
+          io.pos = pos
+          data ? data.unpack("#{fmt}*") : nil
+        rescue
+          nil
+        end
       end
     when TIFF_TYPE_RATIONAL
       if count == 1
@@ -256,16 +268,21 @@ module KDC
         "#{num}/#{denom}"
       else
         # Multiple rationals - read from offset
-        pos = io.pos
-        io.pos = raw_value
-        vals = []
-        count.times do
-          num = io.read(4).unpack1("V")
-          denom = io.read(4).unpack1("V")
-          vals << "#{num}/#{denom}"
+        begin
+          pos = io.pos
+          io.pos = raw_value
+          vals = []
+          count.times do
+            num = io.read(4)&.unpack1("V")
+            denom = io.read(4)&.unpack1("V")
+            break if num.nil? || denom.nil?
+            vals << "#{num}/#{denom}"
+          end
+          io.pos = pos
+          vals.empty? ? nil : vals
+        rescue
+          nil
         end
-        io.pos = pos
-        vals
       end
     else
       # Unknown type - return raw value
