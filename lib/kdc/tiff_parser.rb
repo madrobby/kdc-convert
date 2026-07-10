@@ -332,7 +332,7 @@ module KDC
         begin
           second_ifd = parse_ifd(io, main_offset_tag.value, header.byte_order)
         rescue => e
-          warn "Warning: Failed to parse second IFD at offset #{main_offset_tag.value}: #{e.message}"
+          Util.warn("Failed to parse second IFD at offset #{main_offset_tag.value}: #{e.message}")
           second_ifd = nil
         end
       end

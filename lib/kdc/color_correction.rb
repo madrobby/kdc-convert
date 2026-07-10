@@ -21,7 +21,7 @@ module KDC
 
         JSON.parse(File.read(lut_path))
       rescue JSON::ParserError, Errno::ENOENT => e
-        warn "kdc2tiff: failed to load color correction LUT #{lut_path}: #{e.message}"
+        Util.warn("Failed to load color correction LUT #{lut_path}: #{e.message}")
         nil
       end
 

@@ -20,7 +20,7 @@ module KDC
 
     attr_reader :metadata, :raw_image, :demosaiced_image, :color_params, :sharpen_params, :flash_fired
 
-    def initialize(kdc_path, color_lut: nil, sharpen: nil, verbose: false)
+    def initialize(kdc_path, color_lut: nil, sharpen: nil)
       @kdc_path = kdc_path
       @metadata = nil
       @raw_image = nil
@@ -28,7 +28,6 @@ module KDC
       @color_params = color_lut
       @sharpen_params = sharpen
       @flash_fired = nil
-      @verbose = verbose
     end
 
     # Full conversion pipeline
@@ -50,11 +49,11 @@ module KDC
         step_t = Util.now
         send(method)
         elapsed = Util.now - step_t
-        verbose_log("Step #{i + 1}/#{steps.length}: #{name} ... #{Util.format_duration(elapsed)}")
+        Util.log("Step #{i + 1}/#{steps.length}: #{name} ... #{Util.format_duration(elapsed)}")
       end
 
       total = Util.now - t0
-      verbose_log("Total: #{Util.format_duration(total)}")
+      Util.log("Total: #{Util.format_duration(total)}")
 
       @demosaiced_image
     end
@@ -96,13 +95,11 @@ module KDC
     def parse_metadata
       @metadata = KDC.parse_kdc(@kdc_path)
 
-      if @verbose
-        camera_name = @metadata.camera_model == :dc120 ? "DC120" : @metadata.camera_model == :dc50 ? "DC50" : "Unknown"
-        compression_str = @metadata.compression == 7 ? "compressed (JPEG)" : "uncompressed"
-        flash_tag = @metadata.exif_tags&.dig(0x9209)&.to_i || 0
-        flash_str = (flash_tag & 1) == 1 ? "on" : "off"
-        puts "KDC format: #{camera_name}, #{Util.format_resolution(@metadata.raw_width, @metadata.raw_height)}, #{compression_str}, flash #{flash_str}"
-      end
+      camera_name = @metadata.camera_model == :dc120 ? "DC120" : @metadata.camera_model == :dc50 ? "DC50" : "Unknown"
+      compression_str = @metadata.compression == 7 ? "compressed (JPEG)" : "uncompressed"
+      flash_tag = @metadata.exif_tags&.dig(0x9209)&.to_i || 0
+      flash_str = (flash_tag & 1) == 1 ? "on" : "off"
+      Util.log("KDC format: #{camera_name}, #{Util.format_resolution(@metadata.raw_width, @metadata.raw_height)}, #{compression_str}, flash #{flash_str}")
     end
 
     # Step 2: Decode raw Bayer data
@@ -214,7 +211,7 @@ module KDC
     def apply_sharpening
       return unless @sharpen_params
 
-      verbose_log("Sharpen: radius=#{@sharpen_params[:radius]}, amount=#{@sharpen_params[:amount]}, threshold=#{@sharpen_params[:threshold]}")
+      Util.log("Sharpen: radius=#{@sharpen_params[:radius]}, amount=#{@sharpen_params[:amount]}, threshold=#{@sharpen_params[:threshold]}")
       @demosaiced_image = Sharpen.unsharp_mask(
         @demosaiced_image,
         radius: @sharpen_params[:radius],
@@ -266,13 +263,7 @@ module KDC
       end
     end
 
-    def verbose_log(message)
-      puts(message) if @verbose
-    end
 
-    def format_time(seconds)
-      "%.3fs" % seconds
-    end
 
     # Extract Make from metadata
     def extract_make

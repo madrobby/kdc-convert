@@ -30,6 +30,7 @@ module KDC
         metadata: false,
         sharpen: nil,
         no_color_correction: false,
+        no_color: false,
         output: nil,
         format: nil,
         kdc_file: nil,
@@ -46,11 +47,12 @@ module KDC
           if %w[tif png].include?(v.downcase)
             opts[:format] = v.downcase
           else
-            warn "Unknown format '#{v}', defaulting to tif"
+            Util.warn("Unknown format '#{v}', defaulting to tif")
             opts[:format] = "tif"
           end
         end
         o.on("-v", "--verbose", "Show step-by-step progress with timings") { opts[:verbose] = true }
+        o.on("--no-color", "Disable colored output") { opts[:no_color] = true }
         o.on("--no-color-correction", "Skip color correction step") { opts[:no_color_correction] = true }
         o.on("--sharpen[=r,a,t]", "Apply unsharp mask sharpening (opt-in)\n" \
                                    "Bare flag or =auto for medium strength\n" \
@@ -66,6 +68,8 @@ module KDC
     end
 
     def self.run_mode(mode, opts)
+      Util.verbose = opts[:verbose]
+      Rainbow.enabled = !opts[:no_color]
       case mode
       when :metadata then run_metadata(opts)
       when :convert  then run_convert(opts)
@@ -79,31 +83,38 @@ module KDC
       puts
       puts "Usage:"
       puts "  kdc <file.kdc>                    Show metadata"
-      puts "  kdc -m <file.kdc>                 Show metadata"
-      puts "  kdc -c <file.kdc> -o <output>     Convert to TIFF or PNG"
-      puts "  kdc --help                        Show this help"
-      puts
-      puts "Options:"
-      puts "  -m, --metadata            Show KDC metadata"
-      puts "  -c, --convert             Convert KDC to image"
-      puts "  -o, --output              Output file path"
-      puts "  -f, --format              Output format: tif or png (default: auto-detect from -o extension)"
-      puts "  -v, --verbose             Show step-by-step progress with timings"
-      puts "  --no-color-correction     Skip color correction step"
-      puts "  --sharpen[=r,a,t]         Apply unsharp mask sharpening (opt-in)"
-      puts "                              bare flag or =auto for medium strength"
-      puts "                              =r,a,t for custom radius,amount,threshold"
-      puts "  -h, --help                Show help"
+
+      cols = 60
+      opts = [
+        ["-m, --metadata", "Show KDC metadata"],
+        ["-c, --convert", "Convert KDC to image"],
+        ["-o, --output PATH", "Output file path"],
+        ["-f, --format {tif|png}", "Output format: tif or png (default: auto-detect from -o extension)"],
+        ["-v, --verbose", "Show step-by-step progress with timings"],
+        ["--no-color", "Disable colored output"],
+        ["--no-color-correction", "Skip color correction step"],
+        ["--sharpen[=r,a,t]", "Apply unsharp mask sharpening (opt-in)\n" \
+                               "    Bare flag or =auto for medium strength\n" \
+                               "    =r,a,t for custom radius,amount,threshold"],
+        ["-h, --help", "Show help"],
+      ]
+
+      opts.each do |flag, desc|
+        bold_flag = Rainbow(flag).bold
+        padded = Util.pad_to_visible(bold_flag, cols)
+        puts "  #{padded}#{desc}"
+      end
     end
 
     def self.run_metadata(opts)
       file = opts[:kdc_file]
       return 1 unless file && File.exist?(file)
 
-      puts "Parsing #{file}..."
+      Util.log("Parsing #{file}...")
       metadata = KDC.parse_kdc(file)
 
-      puts "\n=== KDC Metadata ==="
+      puts
+      puts Rainbow("=== KDC Metadata ===").bold
       puts "Camera: #{metadata.camera_model}"
       puts "Raw dimensions: #{metadata.raw_width}x#{metadata.raw_height}"
       puts "Pixel aspect: #{metadata.pixel_aspect}"
@@ -111,7 +122,8 @@ module KDC
       puts "Black level: #{metadata.black_level.inspect}"
       puts "Compression: #{metadata.compression}"
 
-      puts "\n=== EXIF Tags ==="
+      puts
+      puts Rainbow("=== EXIF Tags ===").bold
       metadata.exif_tags.each do |tag, value|
         tag_name = format_tag_name(tag)
         puts "  #{tag_name}: #{value}"
@@ -126,16 +138,15 @@ module KDC
 
       output = opts[:output]
       if output&.start_with?("-")
-        warn "Warning: '#{output}' looks like an option, not a filename"
+        Util.warn(" '#{output}' looks like an option, not a filename")
         output = nil
       end
       output ||= (file && file.sub(/\.kdc$/i, ".tif"))
-      verbose = opts[:verbose]
       no_color_correction = opts[:no_color_correction]
       sharpen = opts[:sharpen]
       format = resolve_format(opts[:format], output)
 
-      verbose_log(verbose, "Converting #{file} -> #{output} (#{format})")
+      Util.log("Converting #{file} -> #{output} (#{format})")
 
       color_lut = if no_color_correction
                     nil
@@ -144,7 +155,7 @@ module KDC
                     KDC::ColorCorrection.load_lut(lut_path)
                   end
 
-      converter = KDC::Converter.new(file, color_lut: color_lut, sharpen: sharpen, verbose: verbose)
+      converter = KDC::Converter.new(file, color_lut: color_lut, sharpen: sharpen)
       begin
         case format
         when "png"
@@ -160,11 +171,11 @@ module KDC
         actual_width = img[0].length
         actual_height = img.length
 
-        verbose_log(verbose, "Saved to #{output} — #{format.upcase}, #{bit_depth}-bit, #{Util.format_resolution(actual_width, actual_height)}, #{Util.human_size(file_size)}")
+        Util.success("Saved to #{output} - #{format.upcase}, #{bit_depth}-bit, #{Util.format_resolution(actual_width, actual_height)}, #{Util.human_size(file_size)}")
         0
       rescue => e
-        puts "Error: #{e.message}"
-        puts e.backtrace.first(5).join("\n")
+        Util.error("Error: #{e.message}")
+        Util.error(e.backtrace.first(5).join("\n"))
         1
       end
     end
@@ -196,10 +207,6 @@ module KDC
       when 0x8822 then "ExposureProgram"
       else "0x#{tag.to_s(16)}"
       end
-    end
-
-    def self.verbose_log(verbose, message)
-      puts(message) if verbose
     end
 
     def self.parse_sharpen_value(str)
