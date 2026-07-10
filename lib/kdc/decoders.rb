@@ -21,6 +21,25 @@ module KDC
     MUL = [162, 192, 187, 92].freeze
     ADD = [0, 636, 424, 212].freeze
 
+    # Quality thresholds based on JPEG data size (StripByteCounts in IFD1)
+    # Derived from fixture files: low=56560, medium=86070, high=176232
+    QUALITY_THRESHOLDS = {
+      low_high: 71_000,
+      high_high: 131_000
+    }.freeze
+
+    def self.classify_quality(compression, data_size)
+      return :raw if compression != 7
+
+      if data_size < QUALITY_THRESHOLDS[:low_high]
+        :low
+      elsif data_size < QUALITY_THRESHOLDS[:high_high]
+        :medium
+      else
+        :high
+      end
+    end
+
     def initialize(file_path, compressed: true, data_offset: 0, data_size: 0, remove_stuck_pixels: true)
       @file_path = file_path
       @compressed = compressed

@@ -52,6 +52,14 @@ module KDC
       "#{width}\u00d7#{height}"
     end
 
+    def self.format_quality(compression, quality)
+      if compression == 7
+        "compressed (JPEG, #{quality})"
+      else
+        "uncompressed (#{quality})"
+      end
+    end
+
     def self.visible_length(str)
       str.to_s.gsub(/\e\[[0-9;]*m/, "").length
     end

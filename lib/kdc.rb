@@ -124,6 +124,7 @@ module KDC
       puts "White level: #{metadata.white_level}"
       puts "Black level: #{metadata.black_level.inspect}"
       puts "Compression: #{metadata.compression}"
+      puts "Quality: #{metadata.quality}"
 
       puts
       puts Rainbow("=== EXIF Tags ===").bold

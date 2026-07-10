@@ -97,10 +97,10 @@ module KDC
       @metadata = KDC.parse_kdc(@kdc_path)
 
       camera_name = @metadata.camera_model == :dc120 ? "DC120" : @metadata.camera_model == :dc50 ? "DC50" : "Unknown"
-      compression_str = @metadata.compression == 7 ? "compressed (JPEG)" : "uncompressed"
+      quality_str = Util.format_quality(@metadata.compression, @metadata.quality)
       flash_tag = @metadata.exif_tags&.dig(0x9209)&.to_i || 0
       flash_str = (flash_tag & 1) == 1 ? "on" : "off"
-      Util.log("KDC format: #{camera_name}, #{Util.format_resolution(@metadata.raw_width, @metadata.raw_height)}, #{compression_str}, flash #{flash_str}")
+      Util.log("KDC format: #{camera_name}, #{Util.format_resolution(@metadata.raw_width, @metadata.raw_height)}, #{quality_str}, flash #{flash_str}")
     end
 
     # Step 2: Decode raw Bayer data

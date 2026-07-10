@@ -95,6 +95,7 @@ module KDC
     :cam_mul,
     :pixel_aspect,
     :exif_tags,
+    :quality,
     keyword_init: true
   )
 
@@ -363,6 +364,16 @@ module KDC
       data_offset = offset_entry&.value || 0
       data_size = bytes_entry&.value || 0
 
+      # Compute quality based on camera-specific thresholds
+      quality = case camera
+                when :dc120
+                  DC120Decoder.classify_quality(compression, data_size)
+                when :dc50
+                  :unknown
+                else
+                  :unknown
+                end
+
       # Set raw dimensions based on camera model
       raw_width, raw_height = case camera
                               when :dc120
@@ -404,7 +415,8 @@ module KDC
         black_level: black_level,
         cam_mul: cam_mul,
         pixel_aspect: pixel_aspect,
-        exif_tags: entries.to_h { |e| [e.tag, e.value] }
+        exif_tags: entries.to_h { |e| [e.tag, e.value] },
+        quality: quality
       )
     end
   end
