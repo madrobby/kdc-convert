@@ -7,36 +7,37 @@ require "tmpdir"
 require "ostruct"
 
 module TestHelper
-  TEST_IMAGES_PATH = File.join(__dir__, "images")
+  FIXTURES_PATH = File.join(__dir__, "fixtures")
 
-  def image_path(filename)
-    File.join(TEST_IMAGES_PATH, filename)
+  def kdc_path(filename)
+    File.join(FIXTURES_PATH, filename)
   end
-  
+  alias_method :image_path, :kdc_path
+
   def reference_tiff_path
-    File.join(TEST_IMAGES_PATH, "DC120_1_ref.tif")
+    File.join(FIXTURES_PATH, "DC120_1_ref.tif")
   end
 
   def reference_png_path
-    File.join(TEST_IMAGES_PATH, "DC120_1_ref.png")
+    File.join(FIXTURES_PATH, "DC120_1_ref.png")
   end
 
   def reference_tiff_path_2
-    File.join(TEST_IMAGES_PATH, "DC120_2_ref.tif")
+    File.join(FIXTURES_PATH, "DC120_2_ref.tif")
   end
 
   def convert_to_temp(kdc_file, format: :tif)
     Dir.mktmpdir do |dir|
       ext = format == :tif ? ".tif" : ".png"
       output = File.join(dir, "output#{ext}")
-      
-      converter = KDC::Converter.new(kdc_file, color_lut: nil)
+
+      converter = KDC::Converter.new(kdc_file, color_lut: nil, remove_stuck_pixels: false)
       if format == :tif
         converter.convert_to_tiff(output)
       else
         converter.convert_to_png(output)
       end
-      
+
       yield output
     end
   end

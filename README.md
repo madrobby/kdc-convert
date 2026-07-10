@@ -4,7 +4,7 @@ Pure Ruby KDC file parser and converter for Kodak DC120 and DC50 digital cameras
 
 ## Overview
 
-Converts Kodak `.KDC` raw files to 16-bit TIFF images. Handles JPEG-compressed raw data, Bayer demosaic (Menon2007), aspect ratio correction, and color correction via a reference LUT.
+Converts Kodak `.KDC` raw files to 16-bit TIFF or 8-bit PNG images. Handles JPEG-compressed raw data, Bayer demosaic (Menon2007), aspect ratio correction, stuck pixel removal, color correction via a reference LUT, and unsharp mask sharpening.
 
 ## AI disclosure
 
@@ -15,63 +15,91 @@ This library is a hobby project to more conveniently convert images made with de
 - **TIFF Parser**: Full TIFF header and IFD parsing (35 entries for DC120)
 - **Metadata Extraction**: EXIF tags (Make, Model, Flash, ExposureTime, FNumber, ISO, etc.)
 - **Raw Decoder**: DC120 compressed (JPEG YCbCr) and uncompressed paths
-- **JPEG Decoder**: Self-contained Huffman decoding, IDCT, YCbCr-to-RGB (also uses `pure_jpeg` gem)
+- **JPEG Decoder**: Uses `pure_jpeg` gem (self-contained Huffman decoding, IDCT, YCbCr-to-RGB)
+- **Stuck Pixel Removal**: Adaptive detection and replacement on JPEG-decoded RGB and Bayer data
 - **Demosaic**: Menon2007 correlation-based algorithm for GRBG Bayer pattern
 - **Aspect Ratio Correction**: Stretch 848→1301 pixels (1.5346x)
 - **Color Correction**: Per-channel linear transform + percentile stretch via LUT
+- **Sharpening**: Opt-in unsharp mask with separable Gaussian blur
 - **TIFF Writer**: 16-bit RGB TIFF output with EXIF metadata
-- **CLI Tools**: Three binaries for metadata viewing, parsing, and conversion
+- **PNG Writer**: 8-bit RGB PNG output (pure Ruby, no external libs)
+- **CLI Tools**: Single binary with metadata viewing and conversion modes
 
 ## Project Structure
 
 ```
 ├── bin/
-│   └── kdc                   # Main CLI (App.run with -m/-c/-o flags)
+│   └── kdc                   # CLI entry point
 ├── lib/
-│   ├── kdc.rb                # Main entry point + App CLI class
+│   ├── kdc.rb                # Main entry point + App CLI class (OptionParser)
 │   └── kdc/
 │       ├── tiff_parser.rb      # TIFF/IFD parser + KDC metadata struct
-│       ├── decoders.rb         # DC120Decoder (compressed + uncompressed)
-│       ├── jpeg_decoder.rb     # Standalone JPEG decoder (Huffman, IDCT, YCbCr)
+│       ├── decoders.rb         # DC120Decoder (compressed + uncompressed + stuck pixel removal)
 │       ├── demosaic.rb         # Menon2007 demosaic algorithm
-│       ├── converter.rb        # Full KDC→TIFF pipeline
+│       ├── converter.rb        # Full KDC→image pipeline (8 steps)
 │       ├── tiff_writer.rb      # 16-bit TIFF output with EXIF
-│       └── color_correction.rb # LUT-based per-channel color transform
-├── samples/
-│   ├── DC120/                  # 27 DC120 .KDC files + _converted/ TIFFs
-│   └── DC50/                   # 9 DC50 .KDC files
+│       ├── png_writer.rb       # 8-bit PNG output (pure Ruby)
+│       ├── color_correction.rb # LUT-based per-channel color transform
+│       ├── sharpen.rb          # Unsharp mask (separable Gaussian blur)
+│       └── util.rb             # Logging, formatting, timing utilities
+├── test/
+│   ├── fixtures/               # DC120 .KDC sample files
+│   ├── integration/            # Integration tests
+│   └── unit/                   # Unit tests
 ├── reference_lut.json          # Color correction lookup table
 ├── Gemfile
 ├── KDC.gemspec
-└── README.md
+└── Rakefile
 ```
 
 ## Quick Start
 
 ```bash
 # Show KDC metadata
-bundle exec kdc samples/DC120/P002002.KDC
+bundle exec kdc test/fixtures/DC120-flash-raw.kdc
 
 # Show metadata with -m flag
-bundle exec kdc -m samples/DC120/P002002.KDC
+bundle exec kdc -m test/fixtures/DC120-flash-raw.kdc
 
-# Convert to TIFF
-bundle exec kdc -c samples/DC120/P002002.KDC -o output.tif
+# Convert to TIFF (default)
+bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif
+
+# Convert to PNG
+bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.png
+
+# Verbose output with timings
+bundle exec kdc -c -v test/fixtures/DC120-flash-raw.kdc -o output.tif
 
 # Skip color correction
-bundle exec kdc -c samples/DC120/P002002.KDC -o output.tif --no-color-correction
+bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif --no-color-correction
+
+# Skip stuck pixel removal
+bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif --no-remove-stuck-pixels
+
+# Apply sharpening (auto strength)
+bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif --sharpen
+
+# Apply sharpening with custom radius,amount,threshold
+bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif --sharpen=1.5,1.5,5
 ```
 
 ## CLI Reference
 
-### `kdc`
-
 ```
-kdc <file.kdc>                    Show metadata
-kdc -m <file.kdc>                 Show metadata
-kdc -c <file.kdc> -o <output.tif> Convert to TIFF
-kdc --no-color-correction ...     Skip color correction
-kdc --help                        Show help
+kdc [options] <file.kdc>
+
+-m, --metadata                  Show KDC metadata
+-c, --convert                   Convert KDC to image
+-o, --output PATH               Output file path (default: <input>.tif)
+-f, --format {tif|png}          Output format (default: auto-detect from -o extension)
+-v, --verbose                   Show step-by-step progress with timings
+--no-color                      Disable colored output
+--no-color-correction           Skip color correction step
+--no-remove-stuck-pixels        Skip stuck pixel removal after JPEG decode
+--sharpen[=r,a,t]               Apply unsharp mask sharpening (opt-in)
+                                Bare flag or =auto for medium strength
+                                =r,a,t for custom radius,amount,threshold
+-h, --help                      Show help
 ```
 
 ## KDC File Format
@@ -83,7 +111,7 @@ kdc --help                        Show help
 | Sensor | 848×976 Bayer (GRBG) |
 | Pixel aspect ratio | 1.5346 (non-square) |
 | Output dimensions | 1301×976 (aspect-corrected) |
-| Bit depth | 8-bit raw → 16-bit output |
+| Bit depth | 8-bit raw → 16-bit output (TIFF) / 8-bit (PNG) |
 | Compression | JPEG YCbCr |
 | White level | 510 (flash) / 255 (daylight) |
 | Black level | 0 |
@@ -117,24 +145,27 @@ KDC File:
 ```
 KDC file
   → parse_kdc (TIFF header + IFD → KDCMetadata)
-  → DC120Decoder.decode (extract JPEG, byte-swap, decode, expand to Bayer GRBG)
+  → DC120Decoder.decode (extract JPEG, byte-swap, decode, stuck pixel removal, expand to Bayer GRBG)
   → black level subtraction
   → Menon2007.demosaic (GRBG → RGB)
   → scale to 16-bit (white level normalization)
   → bilinear resize (aspect ratio correction: 848→1301)
   → color correction (LUT-based per-channel gain/offset + stretch)
-  → TIFFWriter.write (16-bit RGB TIFF with EXIF)
+  → unsharp mask sharpening (opt-in, separable Gaussian blur)
+  → TIFFWriter.write (16-bit RGB TIFF with EXIF) or PNGWriter.write (8-bit RGB PNG)
 ```
 
 ## Dependencies
 
 - **Ruby** >= 3.0
 - **pure_jpeg** ~> 0.3 (JPEG decoding for compressed raw data)
+- **rainbow** ~> 3.0 (terminal colors)
 
 ## Development
 
 ```bash
 bundle install
+rake test
 ```
 
 ## References

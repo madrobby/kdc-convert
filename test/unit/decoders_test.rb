@@ -6,16 +6,16 @@ class DecodersTest < Minitest::Test
   include TestHelper
 
   def test_decode_returns_bayer_array
-    decoder = KDC::DC120Decoder.new(image_path("DC120_1.KDC"), compressed: true)
+    decoder = KDC::DC120Decoder.new(kdc_path("DC120-flash-raw.kdc"), compressed: false, remove_stuck_pixels: false)
     bayer = decoder.decode
-    
+
     assert_instance_of Array, bayer
     assert_equal 976, bayer.length
     assert_equal 848, bayer[0].length
   end
 
   def test_bayer_values_in_range
-    decoder = KDC::DC120Decoder.new(image_path("DC120_1.KDC"), compressed: true)
+    decoder = KDC::DC120Decoder.new(kdc_path("DC120-flash-raw.kdc"), compressed: false, remove_stuck_pixels: false)
     bayer = decoder.decode
     
     min_val = bayer.flatten.min
