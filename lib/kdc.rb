@@ -6,6 +6,7 @@ require_relative "kdc/demosaic"
 require_relative "kdc/converter"
 require_relative "kdc/tiff_writer"
 require_relative "kdc/png_writer"
+require_relative "kdc/util"
 
 module KDC
   # Main entry point for KDC conversion
@@ -16,12 +17,14 @@ module KDC
         return 0
       end
 
+      verbose = args.delete("-v") || args.delete("--verbose")
+
       if args.include?("--metadata") || args.include?("-m")
         return run_metadata(args)
       end
 
       if args.include?("--convert") || args.include?("-c")
-        return run_convert(args)
+        return run_convert(args, verbose)
       end
 
       # Default: show metadata
@@ -44,6 +47,7 @@ module KDC
       puts "  -c, --convert             Convert KDC to image"
       puts "  -o, --output              Output file path"
       puts "  -f, --format              Output format: tif or png (default: auto-detect from -o extension)"
+      puts "  -v, --verbose             Show step-by-step progress with timings"
       puts "  --no-color-correction     Skip color correction step"
       puts "  -h, --help                Show help"
     end
@@ -72,7 +76,7 @@ module KDC
       0
     end
 
-    def self.run_convert(args)
+    def self.run_convert(args, verbose)
       file = find_kdc_file(args)
       return 1 unless file
 
@@ -82,7 +86,7 @@ module KDC
       no_color_correction = args.include?("--no-color-correction")
       format = resolve_format(args, output)
 
-      puts "Converting #{file} -> #{output} (#{format})"
+      verbose_log(verbose, "Converting #{file} -> #{output} (#{format})")
 
       color_lut = if no_color_correction
                     nil
@@ -91,15 +95,23 @@ module KDC
                     KDC::ColorCorrection.load_lut(lut_path)
                   end
 
-      converter = KDC::Converter.new(file, color_lut: color_lut)
+      converter = KDC::Converter.new(file, color_lut: color_lut, verbose: verbose)
       begin
         case format
         when "png"
           converter.convert_to_png(output)
+          bit_depth = 8
         else
           converter.convert_to_tiff(output)
+          bit_depth = 16
         end
-        puts "Saved to #{output}"
+
+        file_size = File.size(output)
+        img = converter.demosaiced_image
+        actual_width = img[0].length
+        actual_height = img.length
+
+        verbose_log(verbose, "Saved to #{output} — #{format.upcase}, #{bit_depth}-bit, #{actual_width}x#{actual_height}, #{Util.human_size(file_size)}")
         0
       rescue => e
         puts "Error: #{e.message}"
@@ -162,22 +174,8 @@ module KDC
       end
     end
 
-    def self.save_as_ppm(image, path)
-      height = image.length
-      width = image[0].length
-
-      File.open(path, "wb") do |f|
-        # P6 header (16-bit)
-        f.write("P6\n#{width} #{height}\n65535\n")
-
-        # Write RGB data
-        height.times do |y|
-          width.times do |x|
-            r, g, b = image[y][x]
-            f.write([r, g, b].pack("v*"))
-          end
-        end
-      end
+    def self.verbose_log(verbose, message)
+      puts(message) if verbose
     end
   end
 end

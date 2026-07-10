@@ -6,6 +6,7 @@ require_relative "demosaic"
 require_relative "tiff_writer"
 require_relative "png_writer"
 require_relative "color_correction"
+require_relative "util"
 
 module KDC
   # DC120 KDC to TIFF converter
@@ -18,37 +19,39 @@ module KDC
 
     attr_reader :metadata, :raw_image, :demosaiced_image, :color_params, :flash_fired
 
-    def initialize(kdc_path, color_lut: nil)
+    def initialize(kdc_path, color_lut: nil, verbose: false)
       @kdc_path = kdc_path
       @metadata = nil
       @raw_image = nil
       @demosaiced_image = nil
       @color_params = color_lut
       @flash_fired = nil
+      @verbose = verbose
     end
 
     # Full conversion pipeline
     def convert
-      # Step 1: Parse KDC metadata
-      parse_metadata
+      t0 = Util.now
 
-      # Step 2: Decode raw Bayer data
-      decode_raw
+      steps = [
+        ["Parse metadata", :parse_metadata],
+        ["Decode raw Bayer", :decode_raw],
+        ["Apply black level", :apply_black_level],
+        ["Demosaic", :demosaic_image],
+        ["Scale to 16-bit", :scale_to_16bit],
+        ["Correct aspect ratio", :correct_aspect_ratio],
+        ["Color correction", :apply_color_correction]
+      ]
 
-      # Step 3: Apply black level
-      apply_black_level
+      steps.each_with_index do |(name, method), i|
+        step_t = Util.now
+        send(method)
+        elapsed = Util.now - step_t
+        verbose_log("Step #{i + 1}/#{steps.length}: #{name} ... #{Util.format_duration(elapsed)}")
+      end
 
-      # Step 4: Demosaic (Menon2007)
-      demosaic_image
-
-      # Step 5: Scale to 16-bit range
-      scale_to_16bit
-
-      # Step 6: Apply aspect ratio correction
-      correct_aspect_ratio
-
-      # Step 7: Apply color correction
-      apply_color_correction
+      total = Util.now - t0
+      verbose_log("Total: #{Util.format_duration(total)}")
 
       @demosaiced_image
     end
@@ -237,6 +240,14 @@ module KDC
           rgb
         end
       end
+    end
+
+    def verbose_log(message)
+      puts(message) if @verbose
+    end
+
+    def format_time(seconds)
+      "%.3fs" % seconds
     end
 
     # Extract Make from metadata
