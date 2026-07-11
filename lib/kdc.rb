@@ -19,14 +19,13 @@ module KDC
         return 0
       end
 
-      mode = opts[:convert] ? :convert : :metadata
+      mode = opts[:metadata] ? :metadata : :convert
       run_mode(mode, opts)
     end
 
     def self.parse_options(args)
         opts = {
           verbose: false,
-          convert: false,
           metadata: false,
           sharpen: nil,
           no_color_correction: false,
@@ -44,7 +43,6 @@ module KDC
         o.banner = "Usage: kdc [options] <file.kdc>"
 
         o.on("-m", "--metadata", "Show KDC metadata") { opts[:metadata] = true }
-        o.on("-c", "--convert", "Convert KDC to TIFF/PNG") { opts[:convert] = true }
         o.on("-o", "--output PATH", "Output file path") { |v| opts[:output] = v; opts[:output_explicit] = true }
         o.on("-f", "--format {tif|png}", "Output format: tif or png (default: auto-detect from -o extension)") do |v|
           opts[:format_explicit] = true
@@ -75,6 +73,7 @@ module KDC
     def self.run_mode(mode, opts)
       Util.verbose = opts[:verbose]
       Rainbow.enabled = !opts[:no_color]
+      warn_conversion_flags_if_metadata(opts) if mode == :metadata
       case mode
       when :metadata then run_metadata(opts)
       when :convert  then run_convert(opts)
@@ -83,16 +82,30 @@ module KDC
 
     private
 
+    def self.warn_conversion_flags_if_metadata(opts)
+      conversion_flags = {
+        output:                "-o / --output",
+        format:                "-f / --format",
+        sharpen:               "--sharpen",
+        no_color_correction:   "--no-color-correction",
+        no_remove_stuck_pixels: "--no-remove-stuck-pixels",
+      }
+      conversion_flags.each do |key, flag|
+        if opts[key]
+          Util.warn("#{flag} only applies to conversion, ignoring")
+        end
+      end
+    end
+
     def self.print_usage
       puts "kdc - Pure Ruby KDC file parser and converter (LibRaw port)"
       puts
       puts "Usage:"
-      puts "  kdc <file.kdc>                    Show metadata"
+      puts "  kdc [options] <file.kdc>    Convert KDC to TIFF/PNG (default)"
 
       cols = 60
       opts = [
         ["-m, --metadata", "Show KDC metadata"],
-        ["-c, --convert", "Convert KDC to image"],
         ["-o, --output PATH", "Output file path"],
         ["-f, --format {tif|png}", "Output format: tif or png (default: auto-detect from -o extension)"],
         ["-v, --verbose", "Show step-by-step progress with timings"],

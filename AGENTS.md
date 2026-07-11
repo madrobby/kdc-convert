@@ -64,7 +64,7 @@ KDC → KDCParser.parse_kdc → DC120Decoder.decode → Menon2007.demosaic → C
 | Flag | Description |
 |---|---|
 | `-m, --metadata` | Show KDC metadata |
-| `-c, --convert` | Convert KDC to image |
+| Conversion is the default (no flag needed) |
 | `-o, --output PATH` | Output file path (default: `<input>.tif`) |
 | `-f, --format {tif\|png}` | Output format (default: auto-detect from `-o` extension) |
 | `-v, --verbose` | Show step-by-step progress with timings |

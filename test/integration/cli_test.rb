@@ -19,7 +19,6 @@ class CLITest < Minitest::Test
     assert result[:status].success?
     assert_includes result[:stdout], "kdc - Pure Ruby"
     assert_includes result[:stdout], "-m, --metadata"
-    assert_includes result[:stdout], "-c, --convert"
   end
 
   def test_metadata_flag
@@ -34,7 +33,7 @@ class CLITest < Minitest::Test
   def test_convert_default_tiff
     Dir.mktmpdir do |dir|
       output = File.join(dir, "output.tif")
-      result = run_kdc("-c", kdc_path("DC120-flash-raw.kdc"), "-o", output, "--no-color-correction")
+      result = run_kdc(kdc_path("DC120-flash-raw.kdc"), "-o", output, "--no-color-correction")
       
       assert result[:status].success?, "Conversion failed: #{result[:stderr]}"
       assert File.exist?(output)
@@ -44,7 +43,7 @@ class CLITest < Minitest::Test
   def test_convert_png_via_extension
     Dir.mktmpdir do |dir|
       output = File.join(dir, "output.png")
-      result = run_kdc("-c", kdc_path("DC120-flash-raw.kdc"), "-o", output, "--no-color-correction")
+      result = run_kdc(kdc_path("DC120-flash-raw.kdc"), "-o", output, "--no-color-correction")
       
       assert result[:status].success?
       assert File.exist?(output)
@@ -57,7 +56,7 @@ class CLITest < Minitest::Test
   def test_convert_tif_via_format_flag
     Dir.mktmpdir do |dir|
       output = File.join(dir, "output.txt")
-      result = run_kdc("-c", kdc_path("DC120-flash-raw.kdc"), "-o", output, "-f", "tif", "--no-color-correction")
+      result = run_kdc(kdc_path("DC120-flash-raw.kdc"), "-o", output, "-f", "tif", "--no-color-correction")
       
       assert result[:status].success?
       assert File.exist?(output)
@@ -70,7 +69,7 @@ class CLITest < Minitest::Test
   def test_convert_png_via_format_flag
     Dir.mktmpdir do |dir|
       output = File.join(dir, "output.txt")
-      result = run_kdc("-c", kdc_path("DC120-flash-raw.kdc"), "-o", output, "-f", "png", "--no-color-correction")
+      result = run_kdc(kdc_path("DC120-flash-raw.kdc"), "-o", output, "-f", "png", "--no-color-correction")
       
       assert result[:status].success?
       assert File.exist?(output)
