@@ -34,6 +34,8 @@ module KDC
           no_remove_stuck_pixels: false,
           output: nil,
           format: nil,
+          output_explicit: false,
+          format_explicit: false,
           kdc_file: nil,
           help: false,
         }
@@ -43,8 +45,9 @@ module KDC
 
         o.on("-m", "--metadata", "Show KDC metadata") { opts[:metadata] = true }
         o.on("-c", "--convert", "Convert KDC to TIFF/PNG") { opts[:convert] = true }
-        o.on("-o", "--output PATH", "Output file path") { |v| opts[:output] = v }
+        o.on("-o", "--output PATH", "Output file path") { |v| opts[:output] = v; opts[:output_explicit] = true }
         o.on("-f", "--format {tif|png}", "Output format: tif or png (default: auto-detect from -o extension)") do |v|
+          opts[:format_explicit] = true
           if %w[tif png].include?(v.downcase)
             opts[:format] = v.downcase
           else
@@ -138,6 +141,10 @@ module KDC
 
       Util.log("Converting #{file} -> #{output} (#{format})")
 
+      if opts[:verbose]
+        print_conversion_options(opts, output, format)
+      end
+
       color_lut = if no_color_correction
                     nil
                   else
@@ -170,6 +177,40 @@ module KDC
       end
     end
 
+    def self.print_conversion_options(opts, output, format)
+      default_output = opts[:kdc_file] && opts[:kdc_file].sub(/\.kdc$/i, ".tif")
+      default_format = resolve_format(nil, opts[:kdc_file] && opts[:kdc_file].sub(/\.kdc$/i, ".tif"))
+
+      lines = []
+      lines << format_line("Output", output, opts[:output_explicit], default_output)
+      lines << format_line("Format", format, opts[:format_explicit], default_format)
+      lines << format_line("Color correct", opts[:no_color_correction] ? "OFF" : "ON", opts[:no_color_correction], "ON")
+      lines << format_line("Stuck pixels", opts[:no_remove_stuck_pixels] ? "NOT removed" : "Removed", opts[:no_remove_stuck_pixels], "Removed")
+
+      sharpen_info = if opts[:sharpen]
+                       s = opts[:sharpen]
+                       label = if s == { radius: Sharpen::AUTO_RADIUS, amount: Sharpen::AUTO_AMOUNT, threshold: Sharpen::AUTO_THRESHOLD }
+                                 "auto (radius=#{Sharpen::AUTO_RADIUS}, amount=#{Sharpen::AUTO_AMOUNT}, threshold=#{Sharpen::AUTO_THRESHOLD})"
+                               else
+                                 "custom (radius=#{s[:radius]}, amount=#{s[:amount]}, threshold=#{s[:threshold]})"
+                               end
+                       [label, true]
+                     else
+                       ["OFF", false]
+                     end
+      lines << format_line("Sharpen", sharpen_info[0], sharpen_info[1], "OFF")
+
+      puts lines.join("\n")
+    end
+
+    def self.format_line(label, value, overridden, _default)
+      cols = 20
+      bold_label = Rainbow(label).bold
+      padded = Util.pad_to_visible(bold_label, cols)
+      colored_value = overridden ? Rainbow(value).yellow : value
+      "  #{padded}#{colored_value}"
+    end
+
     def self.resolve_format(format_flag, output)
       return format_flag if format_flag && %w[tif png].include?(format_flag)
 
@@ -177,26 +218,6 @@ module KDC
       ext = File.extname(output).downcase.delete(".")
       return "png" if ext == "png"
       "tif"
-    end
-
-    def self.format_tag_name(tag)
-      case tag
-      when 0x010F then "Make"
-      when 0x0110 then "Model"
-      when 0x0111 then "StripOffset"
-      when 0x0117 then "StripByteCounts"
-      when 0x0103 then "Compression"
-      when 0x9209 then "Flash"
-      when 0x829A then "ExposureTime"
-      when 0x829D then "FNumber"
-      when 0x9003 then "DateTimeOriginal"
-      when 0x8827 then "ISO"
-      when 0x920A then "FocalLength"
-      when 0x8298 then "WhiteBalance"
-      when 0x828F then "BatteryLevel"
-      when 0x8822 then "ExposureProgram"
-      else "0x#{tag.to_s(16)}"
-      end
     end
 
     def self.parse_sharpen_value(str)

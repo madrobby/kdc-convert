@@ -55,6 +55,7 @@ module KDC
 
       total = Util.now - t0
       Util.log("Total: #{Util.format_duration(total)}")
+      Util.log("")
 
       @demosaiced_image
     end
@@ -103,6 +104,7 @@ module KDC
       flash_str = (flash_tag & 1) == 1 ? "on" : "off"
 
       exposure_str = format_exposure_line(@metadata)
+      Util.log("")
       if exposure_str
         Util.log("KDC format: #{camera_name}, #{Util.format_resolution(@metadata.kdc_raw_width, @metadata.kdc_raw_height)}, #{exposure_str}, #{quality_str}, flash #{flash_str}")
       else
@@ -297,8 +299,6 @@ module KDC
       end
     end
 
-
-
     # Extract Make from metadata
     def extract_make
       @metadata&.make || "Kodak"
@@ -309,50 +309,5 @@ module KDC
       @metadata&.model || "DC120"
     end
 
-    # Add EXIF metadata to TIFF writer using Metadata#to_exif
-    def add_exif_metadata(writer)
-      return unless @metadata
-
-      exif_hash = @metadata.to_exif
-
-      # Add all EXIF entries to the writer
-      exif_hash.each do |tag, value|
-        case tag
-        when 0x829A # ExposureTime
-          if value.is_a?(Rational)
-            writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_RATIONAL, 1, [value.numerator, value.denominator])
-          end
-        when 0x829D # FNumber
-          if value.is_a?(Rational)
-            writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_RATIONAL, 1, [value.numerator, value.denominator])
-          end
-        when 0x9003 # DateTimeOriginal
-          if value.is_a?(String)
-            writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_ASCII, value.bytes.length + 1, value)
-          end
-        when 0x8827 # ISO
-          if value.is_a?(Integer)
-            writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_SHORT, 1, value)
-          end
-        when 0x9209 # Flash
-          if value.is_a?(Integer)
-            writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_SHORT, 1, value)
-          end
-        else
-          # For other EXIF tags, try to add them generically
-          begin
-            if value.is_a?(String)
-              writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_ASCII, value.bytes.length + 1, value)
-            elsif value.is_a?(Integer)
-              writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_SHORT, 1, value)
-            elsif value.is_a?(Rational)
-              writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_RATIONAL, 1, [value.numerator, value.denominator])
-            end
-          rescue => e
-            Util.warn("Failed to add EXIF tag 0x#{tag.to_s(16)}: #{e.message}")
-          end
-        end
-      end
-    end
   end
 end

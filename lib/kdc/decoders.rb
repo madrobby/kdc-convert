@@ -86,7 +86,7 @@ module KDC
       bayer = raw_bayer
 
       # Remove stuck pixels from Bayer array if enabled
-      # bayer = remove_stuck_pixels_bayer(bayer) if @remove_stuck_pixels
+      bayer = remove_stuck_pixels_bayer(bayer) if @remove_stuck_pixels
 
       bayer
     end
