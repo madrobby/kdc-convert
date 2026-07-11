@@ -150,7 +150,7 @@ module KDC
       3 => "cm"
     }.freeze
 
-    # Light source values (EXIF 0x828F)
+    # Light source values (EXIF 0x9208)
     LIGHT_SOURCE_VALUES = {
       0 => "Unknown",
       1 => "Daylight",

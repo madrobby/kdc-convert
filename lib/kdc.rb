@@ -193,7 +193,7 @@ module KDC
       when 0x8827 then "ISO"
       when 0x920A then "FocalLength"
       when 0x8298 then "WhiteBalance"
-      when 0x828F then "LightSource"
+      when 0x828F then "BatteryLevel"
       when 0x8822 then "ExposureProgram"
       else "0x#{tag.to_s(16)}"
       end

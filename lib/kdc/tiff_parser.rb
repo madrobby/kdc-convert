@@ -37,7 +37,6 @@ module KDC
   TAG_SENSING_METHOD            = 0x828C
   TAG_CFA_REPEAT_PATTERN_DIM    = 0x828D
   TAG_CFA_PATTERN               = 0x828E
-  TAG_LIGHT_SOURCE              = 0x828F
   TAG_COPYRIGHT                 = 0x829B
   TAG_WHITE_BALANCE             = 0x8298
   TAG_EXPOSURE_TIME             = 0x829A
@@ -47,6 +46,7 @@ module KDC
   TAG_FOCAL_LENGTH              = 0x920A
   TAG_FLASH                     = 0x9209
   TAG_DATETIME_ORIGINAL         = 0x9003
+  TAG_LIGHT_SOURCE              = 0x9208
   TAG_SUBJECT_DISTANCE          = 0x920B
   TAG_MAKER_NOTE                = 0x9216
   TAG_TIFF_EP_STANDARD_ID       = 0xA433
@@ -469,7 +469,7 @@ module KDC
         second_ifd: second_ifd
       }
 
-      KDC::Metadata.new(metadata_hash)
+      KDC::Metadata.new(metadata_hash.compact)
     end
   end
 
