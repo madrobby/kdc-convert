@@ -101,7 +101,38 @@ module KDC
       quality_str = Util.format_quality(@metadata.compression, @metadata.kdc_quality)
       flash_tag = @metadata.flash&.to_i || 0
       flash_str = (flash_tag & 1) == 1 ? "on" : "off"
-      Util.log("KDC format: #{camera_name}, #{Util.format_resolution(@metadata.kdc_raw_width, @metadata.kdc_raw_height)}, #{quality_str}, flash #{flash_str}")
+
+      exposure_str = format_exposure_line(@metadata)
+      if exposure_str
+        Util.log("KDC format: #{camera_name}, #{Util.format_resolution(@metadata.kdc_raw_width, @metadata.kdc_raw_height)}, #{exposure_str}, #{quality_str}, flash #{flash_str}")
+      else
+        Util.log("KDC format: #{camera_name}, #{Util.format_resolution(@metadata.kdc_raw_width, @metadata.kdc_raw_height)}, #{quality_str}, flash #{flash_str}")
+      end
+    end
+
+    # Build a compact exposure segment: "24mm ƒ/2.5 1/250s"
+    # Missing values are silently omitted; returns nil if all three are missing.
+    def format_exposure_line(metadata)
+      parts = []
+
+      if metadata.focal_length
+        parts << "#{metadata.focal_length.to_i}mm"
+      end
+
+      if metadata.f_number
+        parts << "ƒ/#{metadata.f_number.to_f}"
+      end
+
+      if metadata.exposure_time
+        if metadata.exposure_time < 1
+          ratio = 1.0 / metadata.exposure_time.to_f
+          parts << "1/#{[1, (ratio.round)].max}s"
+        else
+          parts << "#{metadata.exposure_time.to_f}s"
+        end
+      end
+
+      parts.empty? ? nil : parts.join(" ")
     end
 
     # Step 2: Decode raw Bayer data
