@@ -73,6 +73,7 @@ module KDC
           make: extract_make,
           model: extract_model
         )
+        writer.set_metadata(@metadata)
       end
 
       writer.write(output_path)
@@ -96,11 +97,11 @@ module KDC
     def parse_metadata
       @metadata = KDC.parse_kdc(@kdc_path)
 
-      camera_name = @metadata.camera_model == :dc120 ? "DC120" : @metadata.camera_model == :dc50 ? "DC50" : "Unknown"
-      quality_str = Util.format_quality(@metadata.compression, @metadata.quality)
-      flash_tag = @metadata.exif_tags&.dig(0x9209)&.to_i || 0
+      camera_name = @metadata.kdc_camera == :dc120 ? "DC120" : @metadata.kdc_camera == :dc50 ? "DC50" : "Unknown"
+      quality_str = Util.format_quality(@metadata.compression, @metadata.kdc_quality)
+      flash_tag = @metadata.flash&.to_i || 0
       flash_str = (flash_tag & 1) == 1 ? "on" : "off"
-      Util.log("KDC format: #{camera_name}, #{Util.format_resolution(@metadata.raw_width, @metadata.raw_height)}, #{quality_str}, flash #{flash_str}")
+      Util.log("KDC format: #{camera_name}, #{Util.format_resolution(@metadata.kdc_raw_width, @metadata.kdc_raw_height)}, #{quality_str}, flash #{flash_str}")
     end
 
     # Step 2: Decode raw Bayer data
@@ -108,15 +109,15 @@ module KDC
       @raw_image = DC120Decoder.new(
         @kdc_path,
         compressed: @metadata.compression == 7,
-        data_offset: @metadata.data_offset,
-        data_size: @metadata.data_size,
+        data_offset: @metadata.kdc_data_offset,
+        data_size: @metadata.kdc_data_size,
         remove_stuck_pixels: @remove_stuck_pixels
       ).decode
     end
 
     # Step 3: Apply black level subtraction
     def apply_black_level
-      black_level = @metadata.black_level[0]
+      black_level = @metadata.kdc_black_level[0]
 
       height = @raw_image.length
       width = @raw_image[0].length
@@ -138,7 +139,7 @@ module KDC
     def scale_to_16bit
       return unless @demosaiced_image
 
-      white_level = @metadata&.white_level || 510
+      white_level = @metadata&.kdc_white_level || 510
       scale_factor = 65535.0 / white_level
 
       height = @demosaiced_image.length
@@ -181,7 +182,7 @@ module KDC
 
       # Calculate target dimensions
       target_height = OUTPUT_HEIGHT
-      target_width = (src_width * PIXEL_ASPECT).round
+      target_width = (src_width * @metadata.kdc_pixel_aspect).round
 
       # Simple bilinear resize (pure Ruby)
       @demosaiced_image = resize_bilinear(@demosaiced_image, target_width, target_height)
@@ -191,13 +192,13 @@ module KDC
     def apply_color_correction
       return unless @color_params
 
-      flash_tag = @metadata&.exif_tags&.dig(0x9209)&.to_i || 0
+      flash_tag = @metadata&.flash&.to_i || 0
       @flash_fired = (flash_tag & 1) == 1
 
       effective = ColorCorrection.select_params(
         @color_params,
         @flash_fired,
-        camera: @metadata&.camera_model&.to_s || "DC120"
+        camera: @metadata&.kdc_camera&.to_s || "DC120"
       )
 
       return unless effective
@@ -269,53 +270,57 @@ module KDC
 
     # Extract Make from metadata
     def extract_make
-      if @metadata&.exif_tags
-        @metadata.exif_tags[0x010F] || "Kodak"
-      else
-        "Kodak"
-      end
+      @metadata&.make || "Kodak"
     end
 
     # Extract Model from metadata
     def extract_model
-      if @metadata&.exif_tags
-        @metadata.exif_tags[0x0110] || "DC120"
-      else
-        "DC120"
-      end
+      @metadata&.model || "DC120"
     end
 
-    # Add EXIF metadata to TIFF writer
+    # Add EXIF metadata to TIFF writer using Metadata#to_exif
     def add_exif_metadata(writer)
-      return unless @metadata&.exif_tags
+      return unless @metadata
 
-      tags = @metadata.exif_tags
+      exif_hash = @metadata.to_exif
 
-      # ExposureTime (0x829A)
-      if tags[0x829A]
-        num, denom = tags[0x829A].to_s.split("/").map(&:to_i)
-        writer.add_exif_entry(0x829A, TIFFWriter::TIFF_TYPE_RATIONAL, 1, [num, denom])
-      end
-
-      # FNumber (0x829D)
-      if tags[0x829D]
-        num, denom = tags[0x829D].to_s.split("/").map(&:to_i)
-        writer.add_exif_entry(0x829D, TIFFWriter::TIFF_TYPE_RATIONAL, 1, [num, denom])
-      end
-
-      # DateTimeOriginal (0x9003)
-      if tags[0x9003]
-        writer.add_exif_entry(0x9003, TIFFWriter::TIFF_TYPE_ASCII, tags[0x9003].bytes.length + 1, tags[0x9003])
-      end
-
-      # ISO (0x8827)
-      if tags[0x8827]
-        writer.add_exif_entry(0x8827, TIFFWriter::TIFF_TYPE_SHORT, 1, tags[0x8827].to_i)
-      end
-
-      # Flash (0x9209)
-      if tags[0x9209]
-        writer.add_exif_entry(0x9209, TIFFWriter::TIFF_TYPE_SHORT, 1, tags[0x9209].to_i)
+      # Add all EXIF entries to the writer
+      exif_hash.each do |tag, value|
+        case tag
+        when 0x829A # ExposureTime
+          if value.is_a?(Rational)
+            writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_RATIONAL, 1, [value.numerator, value.denominator])
+          end
+        when 0x829D # FNumber
+          if value.is_a?(Rational)
+            writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_RATIONAL, 1, [value.numerator, value.denominator])
+          end
+        when 0x9003 # DateTimeOriginal
+          if value.is_a?(String)
+            writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_ASCII, value.bytes.length + 1, value)
+          end
+        when 0x8827 # ISO
+          if value.is_a?(Integer)
+            writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_SHORT, 1, value)
+          end
+        when 0x9209 # Flash
+          if value.is_a?(Integer)
+            writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_SHORT, 1, value)
+          end
+        else
+          # For other EXIF tags, try to add them generically
+          begin
+            if value.is_a?(String)
+              writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_ASCII, value.bytes.length + 1, value)
+            elsif value.is_a?(Integer)
+              writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_SHORT, 1, value)
+            elsif value.is_a?(Rational)
+              writer.add_exif_entry(tag, TIFFWriter::TIFF_TYPE_RATIONAL, 1, [value.numerator, value.denominator])
+            end
+          rescue => e
+            Util.warn("Failed to add EXIF tag 0x#{tag.to_s(16)}: #{e.message}")
+          end
+        end
       end
     end
   end

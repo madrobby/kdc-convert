@@ -27,7 +27,8 @@ class CLITest < Minitest::Test
     
     assert result[:status].success?
     assert_includes result[:stdout], "Camera: dc120"
-    assert_includes result[:stdout], "Raw dimensions: 848x976"
+    assert_includes result[:stdout], "Raw Width: 848"
+    assert_includes result[:stdout], "Raw Height: 976"
   end
 
   def test_convert_default_tiff

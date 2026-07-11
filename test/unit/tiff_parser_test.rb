@@ -8,10 +8,10 @@ class TIFFParserTest < Minitest::Test
   def test_parse_kdc_returns_metadata
     metadata = KDC.parse_kdc(kdc_path("DC120-flash-raw.kdc"))
     
-    assert metadata.respond_to?(:camera_model)
-    assert_equal :dc120, metadata.camera_model
-    assert_equal 848, metadata.raw_width
-    assert_equal 976, metadata.raw_height
+    assert metadata.respond_to?(:kdc_camera)
+    assert_equal :dc120, metadata.kdc_camera
+    assert_equal 848, metadata.kdc_raw_width
+    assert_equal 976, metadata.kdc_raw_height
   end
 
   def test_detect_camera_dc120
@@ -36,32 +36,32 @@ class TIFFParserTest < Minitest::Test
   def test_extract_make_and_model
     metadata = KDC.parse_kdc(kdc_path("DC120-flash-raw.kdc"))
     
-    assert metadata.exif_tags[0x010F].include?("Eastman Kodak")
-    assert metadata.exif_tags[0x0110].include?("DC120")
+    assert metadata.make.include?("Eastman Kodak")
+    assert metadata.model.include?("DC120")
   end
 
   def test_extract_thumbnail_offset
     metadata = KDC.parse_kdc(kdc_path("DC120-flash-raw.kdc"))
     
-    assert_equal 15680, metadata.data_offset
-    assert_equal 827648, metadata.data_size
+    assert_equal 15680, metadata.kdc_data_offset
+    assert_equal 827648, metadata.kdc_data_size
   end
 
   def test_white_level_default
     metadata = KDC.parse_kdc(kdc_path("DC120-flash-raw.kdc"))
     
-    assert_equal 255, metadata.white_level
+    assert_equal 255, metadata.kdc_white_level
   end
 
   def test_black_level_default
     metadata = KDC.parse_kdc(kdc_path("DC120-flash-raw.kdc"))
     
-    assert_equal [0, 0, 0, 0], metadata.black_level
+    assert_equal [0, 0, 0, 0], metadata.kdc_black_level
   end
 
   def test_pixel_aspect_dc120
     metadata = KDC.parse_kdc(kdc_path("DC120-flash-raw.kdc"))
     
-    assert_in_delta 1.5345911949685533, metadata.pixel_aspect, 0.0001
+    assert_in_delta 1.5345911949685533, metadata.kdc_pixel_aspect.to_f, 0.0001
   end
 end

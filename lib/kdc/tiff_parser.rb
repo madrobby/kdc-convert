@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "stringio"
+require_relative "metadata"
 
 module KDC
   # TIFF tag types
@@ -11,34 +12,45 @@ module KDC
   TIFF_TYPE_RATIONAL = 5
 
   # Standard TIFF tags
-  TAG_IMAGE_WIDTH       = 0x0100
-  TAG_IMAGE_LENGTH      = 0x0101
-  TAG_BITS_PER_SAMPLE   = 0x0102
-  TAG_COMPRESSION       = 0x0103
-  TAG_PHOTOMETRIC_INTERP = 0x0106
-  TAG_MAKE              = 0x010F
-  TAG_MODEL             = 0x0110
-  TAG_STRIP_OFFSETS     = 0x0111
-  TAG_ORIENTATION       = 0x0112
-  TAG_SAMPLES_PER_PIXEL = 0x0115
-  TAG_ROWS_PER_STRIP    = 0x0116
-  TAG_STRIP_BYTE_COUNTS = 0x0117
-  TAG_X_RESOLUTION      = 0x011A
-  TAG_Y_RESOLUTION      = 0x011B
-  TAG_RESOLUTION_UNIT   = 0x0128
-  TAG_SOFTWARE          = 0x0131
-  TAG_DATETIME          = 0x0132
-  TAG_WHITE_BALANCE     = 0x8298
-  TAG_EXPOSURE_TIME     = 0x829A
-  TAG_FNUMBER           = 0x829D
-  TAG_EXPOSURE_PROGRAM  = 0x8822
-  TAG_ISO_SPEED         = 0x8827
-  TAG_FOCAL_LENGTH      = 0x920A
-  TAG_FLASH             = 0x9209
-  TAG_DATETIME_ORIGINAL = 0x9003
-  TAG_LIGHT_SOURCE      = 0x828F
-  TAG_MAKER_NOTE        = 0x9216
-  TAG_MAIN_IMAGE_OFFSET = 0x014A
+  TAG_SUBFILE_TYPE              = 0x00FD
+  TAG_IMAGE_WIDTH               = 0x0100
+  TAG_IMAGE_LENGTH              = 0x0101
+  TAG_BITS_PER_SAMPLE           = 0x0102
+  TAG_COMPRESSION               = 0x0103
+  TAG_PHOTOMETRIC_INTERP        = 0x0106
+  TAG_IMAGE_DESCRIPTION         = 0x010E
+  TAG_MAKE                      = 0x010F
+  TAG_MODEL                     = 0x0110
+  TAG_STRIP_OFFSETS             = 0x0111
+  TAG_ORIENTATION               = 0x0112
+  TAG_SAMPLES_PER_PIXEL         = 0x0115
+  TAG_ROWS_PER_STRIP            = 0x0116
+  TAG_STRIP_BYTE_COUNTS         = 0x0117
+  TAG_X_RESOLUTION              = 0x011A
+  TAG_Y_RESOLUTION              = 0x011B
+  TAG_PLANAR_CONFIGURATION      = 0x011C
+  TAG_RESOLUTION_UNIT           = 0x0128
+  TAG_SOFTWARE                  = 0x0131
+  TAG_DATETIME                  = 0x0132
+  TAG_EXPOSURE_VALUE            = 0x828A
+  TAG_COMPRESSED_BITS_PER_PIXEL = 0x828B
+  TAG_SENSING_METHOD            = 0x828C
+  TAG_CFA_REPEAT_PATTERN_DIM    = 0x828D
+  TAG_CFA_PATTERN               = 0x828E
+  TAG_LIGHT_SOURCE              = 0x828F
+  TAG_COPYRIGHT                 = 0x829B
+  TAG_WHITE_BALANCE             = 0x8298
+  TAG_EXPOSURE_TIME             = 0x829A
+  TAG_FNUMBER                   = 0x829D
+  TAG_EXPOSURE_PROGRAM          = 0x8822
+  TAG_ISO_SPEED                 = 0x8827
+  TAG_FOCAL_LENGTH              = 0x920A
+  TAG_FLASH                     = 0x9209
+  TAG_DATETIME_ORIGINAL         = 0x9003
+  TAG_SUBJECT_DISTANCE          = 0x920B
+  TAG_MAKER_NOTE                = 0x9216
+  TAG_TIFF_EP_STANDARD_ID       = 0xA433
+  TAG_MAIN_IMAGE_OFFSET         = 0x014A
 
   # Camera model strings
   MODEL_DC120 = "Kodak DC120 ZOOM Digital Camera"
@@ -79,25 +91,7 @@ module KDC
     keyword_init: true
   )
 
-  # Parsed KDC metadata
-  KDCMetadata = Struct.new(
-    :header,
-    :ifds,
-    :second_ifd,
-    :camera_model,
-    :raw_width,
-    :raw_height,
-    :data_offset,
-    :data_size,
-    :compression,
-    :white_level,
-    :black_level,
-    :cam_mul,
-    :pixel_aspect,
-    :exif_tags,
-    :quality,
-    keyword_init: true
-  )
+
 
   # Parse TIFF header
   def self.parse_tiff_header(io)
@@ -258,15 +252,24 @@ module KDC
       end
     when TIFF_TYPE_RATIONAL
       if count == 1
-        # Two longs: numerator, denominator
-        if byte_order == "II"
-          num = raw_value & 0xFFFFFFFF
-          denom = (raw_value >> 32) & 0xFFFFFFFF
-        else
-          num = (raw_value >> 32) & 0xFFFFFFFF
-          denom = raw_value & 0xFFFFFFFF
+        # Read 8 bytes from offset (numerator and denominator)
+        begin
+          pos = io.pos
+          io.pos = raw_value
+          if byte_order == "II"
+            num = io.read(4)&.unpack1("V")
+            denom = io.read(4)&.unpack1("V")
+          else
+            num = io.read(4)&.unpack1("N")
+            denom = io.read(4)&.unpack1("N")
+          end
+          io.pos = pos
+          return nil unless num && denom
+
+          "#{num}/#{denom}"
+        rescue
+          nil
         end
-        "#{num}/#{denom}"
       else
         # Multiple rationals - read from offset
         begin
@@ -274,8 +277,13 @@ module KDC
           io.pos = raw_value
           vals = []
           count.times do
-            num = io.read(4)&.unpack1("V")
-            denom = io.read(4)&.unpack1("V")
+            if byte_order == "II"
+              num = io.read(4)&.unpack1("V")
+              denom = io.read(4)&.unpack1("V")
+            else
+              num = io.read(4)&.unpack1("N")
+              denom = io.read(4)&.unpack1("N")
+            end
             break if num.nil? || denom.nil?
             vals << "#{num}/#{denom}"
           end
@@ -401,23 +409,102 @@ module KDC
       # Camera white balance multipliers (default: unset)
       cam_mul = [0.0, 1.0, 0.0, 0.0]
 
-      KDCMetadata.new(
+      # Build hash for Metadata constructor
+      metadata_hash = {
+        # Standard EXIF fields
+        make: find_tag_value(entries, TAG_MAKE),
+        model: model,
+        compression: compression,
+        orientation: find_tag_value(entries, TAG_ORIENTATION),
+        x_resolution: parse_rational_value(find_tag_value(entries, TAG_X_RESOLUTION)),
+        y_resolution: parse_rational_value(find_tag_value(entries, TAG_Y_RESOLUTION)),
+        resolution_unit: find_tag_value(entries, TAG_RESOLUTION_UNIT),
+        software: find_tag_value(entries, TAG_SOFTWARE),
+        date_time: find_tag_value(entries, TAG_DATETIME),
+        exposure_time: parse_rational_value(find_tag_value(entries, TAG_EXPOSURE_TIME)),
+        f_number: parse_rational_value(find_tag_value(entries, TAG_FNUMBER)),
+        exposure_program: find_tag_value(entries, TAG_EXPOSURE_PROGRAM),
+        iso: find_tag_value(entries, TAG_ISO_SPEED),
+        focal_length: parse_rational_value(find_tag_value(entries, TAG_FOCAL_LENGTH)),
+        flash: find_tag_value(entries, TAG_FLASH),
+        date_time_original: find_tag_value(entries, TAG_DATETIME_ORIGINAL),
+        light_source: find_tag_value(entries, TAG_LIGHT_SOURCE),
+
+        # New tags from exiftool output
+        subfile_type: find_tag_value(entries, TAG_SUBFILE_TYPE),
+        image_width: find_tag_value(entries, TAG_IMAGE_WIDTH),
+        image_length: find_tag_value(entries, TAG_IMAGE_LENGTH),
+        bits_per_sample: find_tag_value(entries, TAG_BITS_PER_SAMPLE),
+        photometric_interpretation: find_tag_value(entries, TAG_PHOTOMETRIC_INTERP),
+        image_description: find_tag_value(entries, TAG_IMAGE_DESCRIPTION),
+        strip_offsets: find_tag_value(second_entries, TAG_STRIP_OFFSETS) || find_tag_value(entries, TAG_STRIP_OFFSETS),
+        samples_per_pixel: find_tag_value(entries, TAG_SAMPLES_PER_PIXEL),
+        rows_per_strip: find_tag_value(entries, TAG_ROWS_PER_STRIP),
+        strip_byte_counts: find_tag_value(second_entries, TAG_STRIP_BYTE_COUNTS) || find_tag_value(entries, TAG_STRIP_BYTE_COUNTS),
+        planar_configuration: find_tag_value(entries, TAG_PLANAR_CONFIGURATION),
+        exposure_value: parse_rational_value(find_tag_value(entries, TAG_EXPOSURE_VALUE)),
+        compressed_bits_per_pixel: find_tag_value(entries, TAG_COMPRESSED_BITS_PER_PIXEL),
+        sensing_method: find_tag_value(entries, TAG_SENSING_METHOD),
+        cfa_repeat_pattern_dim: find_tag_value(entries, TAG_CFA_REPEAT_PATTERN_DIM),
+        cfa_pattern: parse_cfa_pattern(find_tag_value(entries, TAG_CFA_PATTERN)),
+        copyright: find_tag_value(entries, TAG_COPYRIGHT),
+        subject_distance: parse_rational_value(find_tag_value(entries, TAG_SUBJECT_DISTANCE)),
+        tif_ep_standard_id: find_tag_value(entries, TAG_TIFF_EP_STANDARD_ID),
+
+        # KDC-specific fields
+        kdc_camera: camera,
+        kdc_data_offset: data_offset,
+        kdc_data_size: data_size,
+        kdc_white_level: white_level,
+        kdc_black_level: black_level,
+        kdc_raw_width: raw_width,
+        kdc_raw_height: raw_height,
+        kdc_pixel_aspect: Rational(pixel_aspect),
+        kdc_quality: quality,
+        kdc_cam_mul: cam_mul,
+
+        # Internal structures
         header: header,
         ifds: ifds,
-        second_ifd: second_ifd,
-        camera_model: camera,
-        raw_width: raw_width,
-        raw_height: raw_height,
-        data_offset: data_offset,
-        data_size: data_size,
-        compression: compression,
-        white_level: white_level,
-        black_level: black_level,
-        cam_mul: cam_mul,
-        pixel_aspect: pixel_aspect,
-        exif_tags: entries.to_h { |e| [e.tag, e.value] },
-        quality: quality
-      )
+        second_ifd: second_ifd
+      }
+
+      KDC::Metadata.new(metadata_hash)
+    end
+  end
+
+  # Find a tag value from IFD entries
+  def self.find_tag_value(entries, tag_id)
+    entry = find_tag(entries, tag_id)
+    entry&.value
+  end
+
+  # Parse a rational value from string "num/denom" to Rational
+  def self.parse_rational_value(value)
+    return nil unless value
+
+    if value.is_a?(Rational)
+      value
+    elsif value.is_a?(String) && value.include?("/")
+      parts = value.split("/").map(&:to_i)
+      return nil unless parts.length == 2 && parts[1] != 0
+
+      Rational(parts[0], parts[1])
+    else
+      value
+    end
+  end
+
+  # Parse CFA pattern from string "1 0 2 1" to array [1, 0, 2, 1]
+  def self.parse_cfa_pattern(value)
+    return nil unless value
+
+    if value.is_a?(Array)
+      value.map(&:to_i)
+    elsif value.is_a?(String)
+      value.split(/\s+/).map(&:to_i)
+    else
+      nil
     end
   end
 end

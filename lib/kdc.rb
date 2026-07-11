@@ -116,22 +116,7 @@ module KDC
       Util.log("Parsing #{file}...")
       metadata = KDC.parse_kdc(file)
 
-      puts
-      puts Rainbow("=== KDC Metadata ===").bold
-      puts "Camera: #{metadata.camera_model}"
-      puts "Raw dimensions: #{metadata.raw_width}x#{metadata.raw_height}"
-      puts "Pixel aspect: #{metadata.pixel_aspect}"
-      puts "White level: #{metadata.white_level}"
-      puts "Black level: #{metadata.black_level.inspect}"
-      puts "Compression: #{metadata.compression}"
-      puts "Quality: #{metadata.quality}"
-
-      puts
-      puts Rainbow("=== EXIF Tags ===").bold
-      metadata.exif_tags.each do |tag, value|
-        tag_name = format_tag_name(tag)
-        puts "  #{tag_name}: #{value}"
-      end
+      puts metadata.to_s
 
       0
     end

@@ -55,6 +55,34 @@ module KDC
       add_entry(TAG_MODEL, TIFF_TYPE_ASCII, model.bytesize + 1, model)
     end
 
+    # Set metadata from KDC::Metadata instance
+    def set_metadata(metadata)
+      return unless metadata
+
+      exif_hash = metadata.to_exif
+
+      # Add standard EXIF entries to EXIF sub-IFD (standard TIFF tags 0x0000-0x014F belong in IFD0; EXIF tags start at 0x8200)
+      exif_hash.each do |tag, value|
+        next if tag < 0x8200
+
+        begin
+          if value.is_a?(String)
+            add_exif_entry(tag, TIFF_TYPE_ASCII, value.bytes.length + 1, value)
+          elsif value.is_a?(Integer)
+            add_exif_entry(tag, TIFF_TYPE_SHORT, 1, value)
+          elsif value.is_a?(Rational)
+            add_exif_entry(tag, TIFF_TYPE_RATIONAL, 1, [value.numerator, value.denominator])
+          elsif value.is_a?(Array)
+            # For array values (like CFA pattern), pack as multiple shorts
+            packed = value.pack("n*")
+            add_exif_entry(tag, TIFF_TYPE_SHORT, value.length, value)
+          end
+        rescue => e
+          Util.warn("Failed to add EXIF tag 0x#{tag.to_s(16)}: #{e.message}")
+        end
+      end
+    end
+
     def setup_image_info
       num_samples = 3
       row_bytes = @width * num_samples * (@bits / 8)
@@ -218,7 +246,12 @@ module KDC
           (value.pack("C*") + "\0" * 4)[0, 4]
         end
       when TIFF_TYPE_ASCII
-        [value].pack("N")
+        if value.is_a?(String)
+          # Pack string with null termination, padded to exactly 4 bytes
+          (value + "\0").ljust(4, "\0").b
+        else
+          [value].pack("N")
+        end
       when TIFF_TYPE_SHORT
         if count == 1
           [value].pack("n") + "\0\0"
