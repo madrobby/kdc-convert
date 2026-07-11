@@ -2,7 +2,7 @@
 
 require_relative "../test_helper"
 
-class TIFFParserTest < Minitest::Test
+class KDCParserTest < Minitest::Test
   include TestHelper
 
   def test_parse_kdc_returns_metadata

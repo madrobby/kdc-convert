@@ -33,7 +33,7 @@ This library is a hobby project to more conveniently convert images made with de
 ├── lib/
 │   ├── kdc.rb                # Main entry point + App CLI class (OptionParser)
 │   └── kdc/
-│       ├── tiff_parser.rb      # TIFF/IFD parser + KDC metadata struct
+│       ├── kdc_parser.rb      # TIFF/IFD parser + KDC metadata struct
 │       ├── decoders.rb         # DC120Decoder (compressed + uncompressed + stuck pixel removal)
 │       ├── demosaic.rb         # Menon2007 demosaic algorithm
 │       ├── converter.rb        # Full KDC→image pipeline (8 steps)

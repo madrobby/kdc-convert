@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "optparse"
-require_relative "kdc/tiff_parser"
+require_relative "kdc/kdc_parser"
 require_relative "kdc/decoders"
 require_relative "kdc/demosaic"
 require_relative "kdc/converter"

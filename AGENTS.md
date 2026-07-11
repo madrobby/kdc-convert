@@ -9,12 +9,12 @@ kdc-convert is a pure Ruby KDC file parser and converter for Kodak DC120 and DC5
 ### Core Pipeline
 
 ```
-KDC → TIFFParser.parse_kdc → DC120Decoder.decode → Menon2007.demosaic → Converter → TIFFWriter / PNGWriter
+KDC → KDCParser.parse_kdc → DC120Decoder.decode → Menon2007.demosaic → Converter → TIFFWriter / PNGWriter
 ```
 
 ### Module Structure
 
-- `KDC::TIFFParser` — Parses TIFF headers, IFDs, and extracts KDC metadata into `KDCMetadata` struct
+- `KDC::KDCParser` — Parses TIFF headers, IFDs, and extracts KDC metadata into `KDCMetadata` struct
 - `KDC::DC120Decoder` — Decodes raw Bayer data (compressed JPEG or uncompressed paths) with stuck pixel removal
 - `KDC::Menon2007` — Demosaic algorithm for GRBG Bayer pattern with correlation-based interpolation
 - `KDC::Converter` — Orchestrates the full KDC→image pipeline (8 steps: parse, decode, black level, demosaic, scale, resize, color correct, sharpen)
