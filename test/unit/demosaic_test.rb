@@ -48,4 +48,41 @@ class DemosaicTest < Minitest::Test
       end
     end
   end
+
+  def test_demosaic_regression_real_image
+    kdc_path = File.join(__dir__, "..", "fixtures", "DC120-noflash-high.kdc")
+    skip "KDC fixture not found" unless File.exist?(kdc_path)
+
+    metadata = KDC.parse_kdc(kdc_path)
+    raw = KDC::DC120Decoder.new(
+      kdc_path,
+      compressed: metadata.compression == 7,
+      data_offset: metadata.kdc_data_offset,
+      data_size: metadata.kdc_data_size,
+      remove_stuck_pixels: true
+    ).decode
+
+    black_level = metadata.kdc_black_level[0]
+    raw.each { |row| row.map! { |v| [v - black_level, 0].max } }
+
+    rgb = KDC::Menon2007.demosaic(raw, "GRBG")
+
+    ref_path = File.join(__dir__, "..", "fixtures", "demosaic_ref.marshal")
+    skip "Regression reference not found" unless File.exist?(ref_path)
+
+    expected = Marshal.load(File.binread(ref_path))
+
+    assert_equal expected.length, rgb.length, "Height mismatch"
+    assert_equal expected[0].length, rgb[0].length, "Width mismatch"
+
+    expected.each_with_index do |exp_row, y|
+      exp_row.each_with_index do |exp_pixel, x|
+        act_pixel = rgb[y][x]
+        3.times do |c|
+          assert_equal exp_pixel[c], act_pixel[c],
+            "Pixel (#{y},#{x}) channel #{c} mismatch: expected #{exp_pixel[c]}, got #{act_pixel[c]}"
+        end
+      end
+    end
+  end
 end
