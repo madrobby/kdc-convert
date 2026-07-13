@@ -2,7 +2,7 @@
 
 require_relative "../test_helper"
 
-class DecodersTest < Minitest::Test
+class DC120Test < Minitest::Test
   include TestHelper
 
   def test_decode_returns_bayer_array

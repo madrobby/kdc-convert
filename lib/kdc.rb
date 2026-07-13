@@ -2,7 +2,7 @@
 
 require "optparse"
 require_relative "kdc/kdc_parser"
-require_relative "kdc/decoders"
+require_relative "kdc/dc120"
 require_relative "kdc/demosaic"
 require_relative "kdc/converter"
 require_relative "kdc/tiff_writer"

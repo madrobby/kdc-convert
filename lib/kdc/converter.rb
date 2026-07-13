@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "kdc_parser"
-require_relative "decoders"
+require_relative "dc120"
 require_relative "demosaic"
 require_relative "tiff_writer"
 require_relative "png_writer"
