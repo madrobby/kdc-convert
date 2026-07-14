@@ -2,6 +2,7 @@
 
 require_relative "kdc_parser"
 require_relative "dc120"
+require_relative "dc50"
 require_relative "demosaic"
 require_relative "tiff_writer"
 require_relative "png_writer"
@@ -139,13 +140,26 @@ module KDC
 
     # Step 2: Decode raw Bayer data
     def decode_raw
-      @raw_image = DC120Decoder.new(
-        @kdc_path,
-        compressed: @metadata.compression == 7,
-        data_offset: @metadata.kdc_data_offset,
-        data_size: @metadata.kdc_data_size,
-        remove_stuck_pixels: @remove_stuck_pixels
-      ).decode
+      case @metadata.kdc_camera
+      when :dc120
+        @raw_image = DC120Decoder.new(
+          @kdc_path,
+          compressed: @metadata.compression == 7,
+          data_offset: @metadata.kdc_data_offset,
+          data_size: @metadata.kdc_data_size,
+          remove_stuck_pixels: @remove_stuck_pixels
+        ).decode
+      when :dc50
+        flat = DC50Decoder.new(
+          @kdc_path,
+          data_offset: @metadata.kdc_data_offset,
+          data_size: @metadata.kdc_data_size,
+          remove_stuck_pixels: @remove_stuck_pixels
+        ).decode
+        @raw_image = flat.each_slice(@metadata.kdc_raw_width).to_a
+      else
+        raise TIFFError, "Unsupported camera: #{@metadata.kdc_camera}"
+      end
     end
 
     # Step 3: Apply black level subtraction
@@ -211,11 +225,15 @@ module KDC
     def correct_aspect_ratio
       return unless @demosaiced_image
 
+      aspect = @metadata.kdc_pixel_aspect
+      return if aspect == 1.0
+
       src_width = @demosaiced_image[0].length
+      src_height = @demosaiced_image.length
 
       # Calculate target dimensions
-      target_height = OUTPUT_HEIGHT
-      target_width = (src_width * @metadata.kdc_pixel_aspect).round
+      target_width = (src_width * aspect).round
+      target_height = src_height
 
       # Simple bilinear resize (pure Ruby)
       @demosaiced_image = resize_bilinear(@demosaiced_image, target_width, target_height)
@@ -316,7 +334,7 @@ module KDC
 
     # Extract Model from metadata
     def extract_model
-      @metadata&.model || "DC120"
+      @metadata&.model || "Unknown"
     end
 
   end

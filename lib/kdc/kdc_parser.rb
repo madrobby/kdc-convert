@@ -400,8 +400,12 @@ module KDC
                        1.0
                      end
 
-      # White level: 510 for compressed JPEG, 255 for uncompressed (8-bit raw data per LibRaw maximum=0xff)
-      white_level = compression == 7 ? 510 : 255
+      # White level: 16383 for DC50 (PT tone curve maximum), 510 for DC120 compressed, 255 for DC120 uncompressed
+      white_level = if camera == :dc50
+                      16383
+                    else
+                      compression == 7 ? 510 : 255
+                    end
 
       # Black level (DC120 has 0)
       black_level = [0, 0, 0, 0]
