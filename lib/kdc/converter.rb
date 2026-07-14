@@ -264,37 +264,47 @@ module KDC
       x_ratio = src_width.to_f / target_width
       y_ratio = src_height.to_f / target_height
 
+      # Pre-compute x weights (reused across all rows)
+      x_weights = Array.new(target_width) do |tx|
+        src_x = tx * x_ratio
+        x0 = src_x.floor
+        x1 = [x0 + 1, src_width - 1].min
+        fx = src_x - x0
+        [x0, x1, fx, 1.0 - fx]
+      end
+
+      # Pre-compute y weights (reused across all columns)
+      y_weights = Array.new(target_height) do |ty|
+        src_y = ty * y_ratio
+        y0 = src_y.floor
+        y1 = [y0 + 1, src_height - 1].min
+        fy = src_y - y0
+        [y0, y1, fy, 1.0 - fy]
+      end
+
       Array.new(target_height) do |ty|
+        y0, y1, fy, fy_inv = y_weights[ty]
+
         Array.new(target_width) do |tx|
-          # Source coordinates
-          src_x = tx * x_ratio
-          src_y = ty * y_ratio
+          x0, x1, fx, fx_inv = x_weights[tx]
 
-          x0 = src_x.floor
-          y0 = src_y.floor
-          x1 = [x0 + 1, src_width - 1].min
-          y1 = [y0 + 1, src_height - 1].min
+          # Interpolate each channel (unrolled)
+          r0 = image[y0][x0][0] * fx_inv + image[y0][x1][0] * fx
+          r1 = image[y1][x0][0] * fx_inv + image[y1][x1][0] * fx
+          r  = (r0 * fy_inv + r1 * fy).round
+          r  = 65535 if r > 65535
 
-          # Fractional parts
-          fx = src_x - x0
-          fy = src_y - y0
+          g0 = image[y0][x0][1] * fx_inv + image[y0][x1][1] * fx
+          g1 = image[y1][x0][1] * fx_inv + image[y1][x1][1] * fx
+          g  = (g0 * fy_inv + g1 * fy).round
+          g  = 65535 if g > 65535
 
-          # Interpolate each channel
-          rgb = [0, 0, 0]
-          3.times do |c|
-            v00 = image[y0][x0][c].to_f
-            v01 = image[y0][x1][c].to_f
-            v10 = image[y1][x0][c].to_f
-            v11 = image[y1][x1][c].to_f
+          b0 = image[y0][x0][2] * fx_inv + image[y0][x1][2] * fx
+          b1 = image[y1][x0][2] * fx_inv + image[y1][x1][2] * fx
+          b  = (b0 * fy_inv + b1 * fy).round
+          b  = 65535 if b > 65535
 
-            v0 = v00 * (1 - fx) + v01 * fx
-            v1 = v10 * (1 - fx) + v11 * fx
-            v = v0 * (1 - fy) + v1 * fy
-
-            rgb[c] = [v.round, 65535].min
-          end
-
-          rgb
+          [r, g, b]
         end
       end
     end
