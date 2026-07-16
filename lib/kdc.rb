@@ -127,7 +127,7 @@ module KDC
 
     def self.run_metadata(opts)
       file = opts[:kdc_file]
-      return 1 unless file && File.exist?(file)
+      return 1 unless file && validate_input_file(file)
 
       Util.log("Parsing #{file}...")
       metadata = KDC.parse_kdc(file)
@@ -139,7 +139,7 @@ module KDC
 
     def self.run_convert(opts)
       file = opts[:kdc_file]
-      return 1 unless file && File.exist?(file)
+      return 1 unless file && validate_input_file(file)
 
       output = opts[:output]
       if output&.start_with?("-")
@@ -245,6 +245,26 @@ module KDC
           threshold: parts[2] ? parts[2] : Sharpen::AUTO_THRESHOLD
         }
       end
+    end
+
+    def self.validate_input_file(file)
+      if file.empty?
+        Util.error("Error: No input file specified")
+        return false
+      end
+      unless File.exist?(file)
+        Util.error("Error: File not found: #{file}")
+        return false
+      end
+      unless File.file?(file)
+        Util.error("Error: Not a regular file: #{file}")
+        return false
+      end
+      unless File.readable?(file)
+        Util.error("Error: Cannot read file (permission denied): #{file}")
+        return false
+      end
+      true
     end
   end
 end
