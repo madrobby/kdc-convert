@@ -11,4 +11,10 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.required_ruby_version = ">= 3.0"
+
+  spec.add_dependency "pure_jpeg", "~> 0.3"
+  spec.add_dependency "rainbow", "~> 3.0"
+
+  spec.add_development_dependency "minitest", "~> 5.0"
+  spec.add_development_dependency "rake"
 end

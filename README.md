@@ -34,14 +34,16 @@ This library is a hobby project to more conveniently convert images made with de
 │   ├── kdc.rb                # Main entry point + App CLI class (OptionParser)
 │   └── kdc/
 │       ├── kdc_parser.rb      # TIFF/IFD parser + KDC metadata struct
-│       ├── decoders.rb         # DC120Decoder (compressed + uncompressed + stuck pixel removal)
-│       ├── demosaic.rb         # Menon2007 demosaic algorithm
-│       ├── converter.rb        # Full KDC→image pipeline (8 steps)
-│       ├── tiff_writer.rb      # 16-bit TIFF output with EXIF
-│       ├── png_writer.rb       # 8-bit PNG output (pure Ruby)
+│       ├── dc120.rb           # DC120 decoder (compressed + uncompressed + stuck pixel removal)
+│       ├── dc50.rb            # DC50 decoder (Huffman + interpolation)
+│       ├── metadata.rb        # EXIF metadata struct and formatting
+│       ├── demosaic.rb        # Menon2007 demosaic algorithm
+│       ├── converter.rb       # Full KDC→image pipeline (8 steps)
+│       ├── tiff_writer.rb     # 16-bit TIFF output with EXIF
+│       ├── png_writer.rb      # 8-bit PNG output (pure Ruby)
 │       ├── color_correction.rb # LUT-based per-channel color transform
-│       ├── sharpen.rb          # Unsharp mask (separable Gaussian blur)
-│       └── util.rb             # Logging, formatting, timing utilities
+│       ├── sharpen.rb         # Unsharp mask (separable Gaussian blur)
+│       └── util.rb            # Logging, formatting, timing utilities
 ├── test/
 │   ├── fixtures/               # DC120 .KDC sample files
 │   ├── integration/            # Integration tests
@@ -56,31 +58,28 @@ This library is a hobby project to more conveniently convert images made with de
 
 ```bash
 # Show KDC metadata
-bundle exec kdc test/fixtures/DC120-flash-raw.kdc
-
-# Show metadata with -m flag
 bundle exec kdc -m test/fixtures/DC120-flash-raw.kdc
 
 # Convert to TIFF (default)
-bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif
+bundle exec kdc test/fixtures/DC120-flash-raw.kdc -o output.tif
 
 # Convert to PNG
-bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.png
+bundle exec kdc test/fixtures/DC120-flash-raw.kdc -o output.png
 
 # Verbose output with timings
-bundle exec kdc -c -v test/fixtures/DC120-flash-raw.kdc -o output.tif
+bundle exec kdc -v test/fixtures/DC120-flash-raw.kdc -o output.tif
 
 # Skip color correction
-bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif --no-color-correction
+bundle exec kdc test/fixtures/DC120-flash-raw.kdc -o output.tif --no-color-correction
 
 # Skip stuck pixel removal
-bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif --no-remove-stuck-pixels
+bundle exec kdc test/fixtures/DC120-flash-raw.kdc -o output.tif --no-remove-stuck-pixels
 
 # Apply sharpening (auto strength)
-bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif --sharpen
+bundle exec kdc test/fixtures/DC120-flash-raw.kdc -o output.tif --sharpen
 
 # Apply sharpening with custom radius,amount,threshold
-bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif --sharpen=1.5,1.5,5
+bundle exec kdc test/fixtures/DC120-flash-raw.kdc -o output.tif --sharpen=1.5,1.5,5
 ```
 
 ## CLI Reference
@@ -89,7 +88,6 @@ bundle exec kdc -c test/fixtures/DC120-flash-raw.kdc -o output.tif --sharpen=1.5
 kdc [options] <file.kdc>
 
 -m, --metadata                  Show KDC metadata
--c, --convert                   Convert KDC to image
 -o, --output PATH               Output file path (default: <input>.tif)
 -f, --format {tif|png}          Output format (default: auto-detect from -o extension)
 -v, --verbose                   Show step-by-step progress with timings
