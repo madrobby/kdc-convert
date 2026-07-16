@@ -34,6 +34,7 @@ module KDC
   TAG_DATETIME                  = 0x0132
   TAG_EXPOSURE_VALUE            = 0x828A
   TAG_COMPRESSED_BITS_PER_PIXEL = 0x828B
+  TAG_COMPRESSED_BITS_PER_PIXEL_EXIF = 0x9102
   TAG_SENSING_METHOD            = 0x828C
   TAG_CFA_REPEAT_PATTERN_DIM    = 0x828D
   TAG_CFA_PATTERN               = 0x828E
@@ -382,6 +383,13 @@ module KDC
                   :unknown
                 end
 
+      # Extract compressed bits per pixel from EXIF IFD or TIFF/EP tag
+      cbpp_exif = find_tag_value(second_entries, TAG_COMPRESSED_BITS_PER_PIXEL_EXIF)
+      if cbpp_exif.is_a?(String) && cbpp_exif.include?("/")
+        cbpp_exif = cbpp_exif.split("/").first.to_i
+      end
+      compressed_bits_per_pixel = find_tag_value(entries, TAG_COMPRESSED_BITS_PER_PIXEL) || cbpp_exif
+
       # Set raw dimensions based on camera model
       raw_width, raw_height = case camera
                               when :dc120
@@ -447,7 +455,7 @@ module KDC
         strip_byte_counts: find_tag_value(second_entries, TAG_STRIP_BYTE_COUNTS) || find_tag_value(entries, TAG_STRIP_BYTE_COUNTS),
         planar_configuration: find_tag_value(entries, TAG_PLANAR_CONFIGURATION),
         exposure_value: parse_rational_value(find_tag_value(entries, TAG_EXPOSURE_VALUE)),
-        compressed_bits_per_pixel: find_tag_value(entries, TAG_COMPRESSED_BITS_PER_PIXEL),
+        compressed_bits_per_pixel: compressed_bits_per_pixel,
         sensing_method: find_tag_value(entries, TAG_SENSING_METHOD),
         cfa_repeat_pattern_dim: find_tag_value(entries, TAG_CFA_REPEAT_PATTERN_DIM),
         cfa_pattern: parse_cfa_pattern(find_tag_value(entries, TAG_CFA_PATTERN)),
@@ -466,6 +474,7 @@ module KDC
         kdc_pixel_aspect: Rational(pixel_aspect),
         kdc_quality: quality,
         kdc_cam_mul: cam_mul,
+        kdc_compressed_bits_per_pixel: compressed_bits_per_pixel,
 
         # Internal structures
         header: header,

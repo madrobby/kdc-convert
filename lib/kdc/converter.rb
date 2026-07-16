@@ -154,7 +154,8 @@ module KDC
           @kdc_path,
           data_offset: @metadata.kdc_data_offset,
           data_size: @metadata.kdc_data_size,
-          remove_stuck_pixels: @remove_stuck_pixels
+          remove_stuck_pixels: @remove_stuck_pixels,
+          kodak_cbpp: @metadata.kdc_compressed_bits_per_pixel
         ).decode
         @raw_image = flat.each_slice(@metadata.kdc_raw_width).to_a
       else

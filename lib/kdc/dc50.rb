@@ -25,11 +25,12 @@ module KDC
 
     PT = [0, 0, 1280, 1344, 2320, 3616, 3328, 8000, 4095, 16383, 65535, 16383].freeze
 
-    def initialize(file_path, data_offset:, data_size:, remove_stuck_pixels: true)
+    def initialize(file_path, data_offset:, data_size:, remove_stuck_pixels: true, kodak_cbpp: nil)
       @file_path = file_path
       @data_offset = data_offset
       @data_size = data_size
       @remove_stuck_pixels = remove_stuck_pixels
+      @kodak_cbpp = kodak_cbpp
       @raw_image = nil
     end
 
@@ -69,7 +70,7 @@ module KDC
         i += 2
       end
       # tree 18 – simple fixed-length table
-      ss = 3  # kodak_cbpp != 243
+      ss = @kodak_cbpp == 243 ? 2 : 3
       (0..255).each do |cc|
         huff[18 * 256 + cc] = ((8 - ss) << 8) | ((cc >> ss) << ss) | (1 << (ss - 1))
       end
@@ -86,7 +87,7 @@ module KDC
       while row < RAW_HEIGHT
         # read 6-bit multipliers for each channel
         mul = [io.getbits(6), io.getbits(6), io.getbits(6)]
-        mul = mul.map { |m| m == 0 ? 1 : m }  # avoid division by zero (valid in libraw)
+        mul = mul.map { |m| m == 0 ? 1 : m }  # avoid division by zero
 
         3.times do |c|
           vv = ((0x1000000 / last[c] + 0x7ff) >> 12) * mul[c]
@@ -99,7 +100,7 @@ module KDC
             row_buf.each_with_index do |val, j|
               scaled = (val * vv + xx) >> ss
               scaled = [scaled, 0x7FFFFFFF].min
-              row_buf[j] = scaled & 0xFFFF
+              row_buf[j] = to_signed16(scaled)
             end
           end
 
@@ -136,7 +137,7 @@ module KDC
                               else
                                 (buf[c][y - 1][x + 1] + 2 * buf[c][y - 1][x] + buf[c][y][x + 1]) / 4
                               end
-                      buf[c][y][x] = diff + pred
+                      buf[c][y][x] = to_signed16(diff + pred)
                     end
                   end
                 end
@@ -155,7 +156,7 @@ module KDC
                                   else
                                     (buf[c][y - 1][x + 1] + 2 * buf[c][y - 1][x] + buf[c][y][x + 1]) / 4
                                   end
-                          buf[c][y][x] = pred
+                          buf[c][y][x] = to_signed16(pred)
                         end
                       end
                     end
@@ -163,7 +164,7 @@ module KDC
                       step = io.radc_token(huff, 10) << 4
                       for y in 1..2
                         for x in [col + 1, col]
-                          buf[c][y][x] += step
+                          buf[c][y][x] = to_signed16(buf[c][y][x] + step)
                         end
                       end
                     end
@@ -227,6 +228,11 @@ module KDC
     end
 
     private
+
+    def to_signed16(val)
+      val &= 0xFFFF
+      val >= 0x8000 ? val - 0x10000 : val
+    end
 
     def remove_stuck_pixels_bayer
       height = RAW_HEIGHT
@@ -304,10 +310,10 @@ module KDC
           @vbits += 8
         end
 
-        c = @vbits == 0 ? 0 : ((@bitbuf << (32 - @vbits)) & 0xFFFFFFFF) >> (32 - nbits)
+        c = @vbits == 0 ? 0 : (@bitbuf >> (@vbits - nbits)) & ((1 << nbits) - 1)
 
         if huff
-          @vbits -= (huff[c] >> 8)
+          @vbits -= huff[c] >> 8
           c = huff[c] & 0xFF
         else
           @vbits -= nbits
