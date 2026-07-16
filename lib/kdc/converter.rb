@@ -268,7 +268,9 @@ module KDC
       apply_gamma if @metadata&.kdc_camera == :dc50
     end
 
-    # Apply sRGB gamma curve for natural-looking output
+    # Apply sRGB gamma curve for natural-looking output.
+    # First subtracts per-channel black level (global minimum across
+    # channels) so that the darkest pixel reaches true black.
     def apply_gamma
       a = 0.055
       gamma = 1.0 / 2.4
@@ -277,12 +279,26 @@ module KDC
       height = @demosaiced_image.length
       width = @demosaiced_image[0].length
 
+      # Find global minimum across all channels
+      black = 65535
       height.times do |y|
         width.times do |x|
           r, g, b = @demosaiced_image[y][x]
-          nr = srgb_transfer(r / 65535.0, a, gamma, clip)
-          ng = srgb_transfer(g / 65535.0, a, gamma, clip)
-          nb = srgb_transfer(b / 65535.0, a, gamma, clip)
+          black = r if r < black
+          black = g if g < black
+          black = b if b < black
+        end
+      end
+
+      # Clamp black level to avoid excessive clipping
+      black = [black, 0].max
+
+      height.times do |y|
+        width.times do |x|
+          r, g, b = @demosaiced_image[y][x]
+          nr = srgb_transfer([r - black, 0].max / 65535.0, a, gamma, clip)
+          ng = srgb_transfer([g - black, 0].max / 65535.0, a, gamma, clip)
+          nb = srgb_transfer([b - black, 0].max / 65535.0, a, gamma, clip)
           @demosaiced_image[y][x] = [
             (nr * 65535.0).round,
             (ng * 65535.0).round,
