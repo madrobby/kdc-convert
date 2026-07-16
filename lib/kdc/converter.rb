@@ -85,6 +85,10 @@ module KDC
     # Convert and save to PNG file
     def convert_to_png(output_path)
       image = convert
+      if @metadata&.kdc_camera == :dc50
+        # Apply gamma + auto_bright for 8-bit output (matching dcraw_emu -T default)
+        image = apply_dc50_gamma_to_image(image)
+      end
       png_image = scale_to_8bit(image)
 
       writer = PNGWriter.new(png_image[0].length, png_image.length)
@@ -242,6 +246,11 @@ module KDC
 
     # Step 7: Apply color correction (flash-aware, camera-specific)
     def apply_color_correction
+      if @metadata&.kdc_camera == :dc50
+        apply_dc50_matrix
+        return
+      end
+
       return unless @color_params
 
       flash_tag = @metadata&.flash&.to_i || 0
@@ -255,60 +264,136 @@ module KDC
 
       return unless effective
 
-      # DC50 stretch params are calibrated for a different pipeline;
-      # skip stretch to avoid crushing blacks, then apply sRGB gamma.
-      use_stretch = @metadata&.kdc_camera != :dc50
-
       @demosaiced_image = ColorCorrection.apply(
         @demosaiced_image,
         effective[:params],
-        use_stretch ? effective[:stretch] : nil
+        effective[:stretch]
       )
-
-      apply_gamma if @metadata&.kdc_camera == :dc50
     end
 
-    # Apply tone curve for natural-looking output.
-    # Subtracts per-channel black levels (global minimum) so that
-    # the darkest pixel reaches true black, then applies a pure
-    # power-law gamma (no linear sRGB knee) for steeper shadows
-    # and higher contrast.
-    def apply_gamma
-      gamma = 1.0 / 2.0
+# DC50 color matrix from KDC tag 0x9218 (embedded in file), libraw's rgb_cam.
+# 3×3 matrix: raw camera RGB → sRGB (output_color=1).
+DC50_SRGB_MATRIX = [
+  [ 1.812500, -0.336500, -0.476000 ],
+  [ -0.435000,  1.852000, -0.417000 ],
+  [ -0.676000, -1.393000,  3.069000 ]
+].freeze
 
+# Step 7a: Apply DC50 color matrix (KDC tag 0x9218) with soft-clamp for negatives
+    def apply_dc50_matrix
       height = @demosaiced_image.length
       width = @demosaiced_image[0].length
+      mat = DC50_SRGB_MATRIX
 
-      # Find per-channel minimums via sparse sampling
-      black_r = 65535
-      black_g = 65535
-      black_b = 65535
-      0.step(height - 1, 4) do |y|
-        0.step(width - 1, 4) do |x|
-          r, g, b = @demosaiced_image[y][x]
-          black_r = r if r < black_r
-          black_g = g if g < black_g
-          black_b = b if b < black_b
-        end
-      end
-
+      # Pre-compute interpolated B-channel (demosaiced raw B) at G-pixels
+      # Use 4 diagonal B-pixel neighbors in GRBG pattern
+      b_at_g = {}
       height.times do |y|
         width.times do |x|
-          r, g, b = @demosaiced_image[y][x]
-          nr = pure_gamma([r - black_r, 0].max / 65535.0, gamma)
-          ng = pure_gamma([g - black_g, 0].max / 65535.0, gamma)
-          nb = pure_gamma([b - black_b, 0].max / 65535.0, gamma)
-          @demosaiced_image[y][x] = [
-            (nr * 65535.0).round,
-            (ng * 65535.0).round,
-            (nb * 65535.0).round
-          ].map { |v| [v, 65535].min }
+          next unless (x + y) % 2 == 1  # G-pixel in GRBG
+          nb = 0; cnt = 0
+          # Diagonal neighbors are B-pixels in GRBG
+          [[-1,-1],[-1,1],[1,-1],[1,1]].each do |dx,dy|
+            nx, ny = x+dx, y+dy
+            if nx >= 0 && nx < width && ny >= 0 && ny < height
+              _, _, b_raw = @demosaiced_image[ny][nx]
+              nb += b_raw
+              cnt += 1
+            end
+          end
+          b_at_g[[x,y]] = cnt > 0 ? nb / cnt : 0
         end
       end
+
+      srgb = Array.new(height) do |y|
+        Array.new(width) do |x|
+          r, g, b = @demosaiced_image[y][x]
+          rs = mat[0][0] * r + mat[0][1] * g + mat[0][2] * b
+          gs = mat[1][0] * r + mat[1][1] * g + mat[1][2] * b
+          bs = mat[2][0] * r + mat[2][1] * g + mat[2][2] * b
+
+          # At G-pixels where B goes negative, use interpolated B from diagonal B-pixels
+          if bs < 0 && (x + y) % 2 == 1
+            b_interp = b_at_g[[x,y]]
+            # Apply only the B-coefficient (mat[2][2] = 3.069) since R,G contributions are unknown
+            bs = mat[2][2] * b_interp
+          end
+          # Final safety clamp
+          rs = [rs, 0].max
+          gs = [gs, 0].max
+          bs = [bs, 0].max
+          [rs, gs, bs].map { |v| v.round }.map { |v| [v, 65535].min }
+        end
+      end
+
+      @demosaiced_image = srgb
     end
 
-    def pure_gamma(v, gamma)
-      [v ** gamma, 0.0].max
+# Step 7b: Apply DC50 auto-bright + gamma (for 8-bit output only; matrix already applied)
+    def apply_dc50_gamma_to_image(image)
+      height = image.length
+      width = image[0].length
+
+      # Step 2: histogram from matrix‑multiplied values (libraw convert_to_rgb_loop)
+      hist = Array.new(3) { Array.new(8192, 0) }
+      height.times do |y|
+        width.times do |x|
+          image[y][x].each_with_index do |v, c|
+            idx = v >> 3
+            hist[c][idx] += 1 if idx < 8192
+          end
+        end
+      end
+
+      # Step 3: auto‑brightness (libraw: per-channel t_white = max across channels, starting from 0)
+      total_pixels = height * width
+      thr = (total_pixels * 0.01).ceil
+      t_white = [0, 0, 0]
+      3.times do |c|
+        accum = 0
+        8191.downto(33) do |b|
+          accum += hist[c][b]
+          if accum > thr
+            t_white[c] = b
+            break
+          end
+        end
+      end
+      # Use single t_white = max across channels (libraw behavior in write_ppm_tiff)
+      imax_val = t_white.max << 3
+      imax = [imax_val] * 3
+
+      # Step 4: libraw gamma_curve parameters (mode=0 → compute g[2..5])
+      pwr = 0.45
+      ts  = 4.5
+      bnd = [0.0, 1.0]
+      48.times do
+        g2 = (bnd[0] + bnd[1]) / 2.0
+        c = ((g2 / ts) ** (-pwr) - 1) / pwr - 1.0 / g2
+        c > -1 ? (bnd[1] = g2) : (bnd[0] = g2)
+      end
+      g2 = (bnd[0] + bnd[1]) / 2.0
+      g3 = g2 / ts
+      g4 = g2 * (1.0 / pwr - 1)
+
+      # Step 5: apply gamma LUT (libraw mode=1 forward transform)
+      pre = 65536.0
+      out_max = 65535
+      height.times do |y|
+        width.times do |x|
+          image[y][x] = image[y][x].map.with_index do |v, c|
+            r = v.to_f / imax[c]
+            if r < 1.0
+              gv = r < g3 ? r * ts : r ** pwr * (1 + g4) - g4
+              out = (gv * pre).round
+              out > out_max ? out_max : out
+            else
+              out_max
+            end
+          end
+        end
+      end
+      image
     end
 
     # Step 8: Apply unsharp mask sharpening (opt-in)
