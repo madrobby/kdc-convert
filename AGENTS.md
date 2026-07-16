@@ -4,6 +4,10 @@
 
 kdc-convert is a pure Ruby KDC file parser and converter for Kodak DC120 and DC50 digital cameras. It ports LibRaw's KDC decoding logic to Ruby, converting raw `.KDC` files to 16-bit TIFF or 8-bit PNG images.
 
+## Agent Rules
+
+IMPORTANT: Keep all temporary and scratch work files in ./tmp for easy cleanup.
+
 ## Architecture
 
 ### Core Pipeline
