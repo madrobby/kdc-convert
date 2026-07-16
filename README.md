@@ -174,4 +174,8 @@ rake test
 
 ## License
 
-MIT
+Note: I'm not a legal expert or lawyer so this is not legal advice or binding:
+
+MIT for everything but the following exceptions: There is some code ported from LibRaw included in this software, namely lib/dc50.rb and lib/dc120.rb. These files are licensed under the COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0 as per LibRaw's licensing.
+
+Some other parts of the code (e.g. demosaic.rb) are ports of opens source code with licenses that should be compatible with MIT. Please see the comments in the files.
