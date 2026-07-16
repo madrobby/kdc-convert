@@ -268,37 +268,36 @@ module KDC
       apply_gamma if @metadata&.kdc_camera == :dc50
     end
 
-    # Apply sRGB gamma curve for natural-looking output.
-    # First subtracts per-channel black level (global minimum across
-    # channels) so that the darkest pixel reaches true black.
+    # Apply tone curve for natural-looking output.
+    # Subtracts per-channel black levels (global minimum) so that
+    # the darkest pixel reaches true black, then applies a pure
+    # power-law gamma (no linear sRGB knee) for steeper shadows
+    # and higher contrast.
     def apply_gamma
-      a = 0.055
-      gamma = 1.0 / 2.4
-      clip = 0.0031308
+      gamma = 1.0 / 2.0
 
       height = @demosaiced_image.length
       width = @demosaiced_image[0].length
 
-      # Find global minimum across all channels
-      black = 65535
-      height.times do |y|
-        width.times do |x|
+      # Find per-channel minimums via sparse sampling
+      black_r = 65535
+      black_g = 65535
+      black_b = 65535
+      0.step(height - 1, 4) do |y|
+        0.step(width - 1, 4) do |x|
           r, g, b = @demosaiced_image[y][x]
-          black = r if r < black
-          black = g if g < black
-          black = b if b < black
+          black_r = r if r < black_r
+          black_g = g if g < black_g
+          black_b = b if b < black_b
         end
       end
 
-      # Clamp black level to avoid excessive clipping
-      black = [black, 0].max
-
       height.times do |y|
         width.times do |x|
           r, g, b = @demosaiced_image[y][x]
-          nr = srgb_transfer([r - black, 0].max / 65535.0, a, gamma, clip)
-          ng = srgb_transfer([g - black, 0].max / 65535.0, a, gamma, clip)
-          nb = srgb_transfer([b - black, 0].max / 65535.0, a, gamma, clip)
+          nr = pure_gamma([r - black_r, 0].max / 65535.0, gamma)
+          ng = pure_gamma([g - black_g, 0].max / 65535.0, gamma)
+          nb = pure_gamma([b - black_b, 0].max / 65535.0, gamma)
           @demosaiced_image[y][x] = [
             (nr * 65535.0).round,
             (ng * 65535.0).round,
@@ -308,12 +307,8 @@ module KDC
       end
     end
 
-    def srgb_transfer(v, a, gamma, clip)
-      if v <= clip
-        12.92 * v
-      else
-        (1 + a) * v ** gamma - a
-      end
+    def pure_gamma(v, gamma)
+      [v ** gamma, 0.0].max
     end
 
     # Step 8: Apply unsharp mask sharpening (opt-in)
