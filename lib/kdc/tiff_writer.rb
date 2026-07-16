@@ -74,7 +74,6 @@ module KDC
             add_exif_entry(tag, TIFF_TYPE_RATIONAL, 1, [value.numerator, value.denominator])
           elsif value.is_a?(Array)
             # For array values (like CFA pattern), pack as multiple shorts
-            packed = value.pack("n*")
             add_exif_entry(tag, TIFF_TYPE_SHORT, value.length, value)
           end
         rescue => e
@@ -121,14 +120,14 @@ module KDC
 
       # Calculate external data offsets and build external data simultaneously
       ext_offset = exif_end
-      external_data = ""
+      external_data_parts = []
 
       # Helper to append data with 4-byte alignment
       add_aligned = ->(data) {
-        external_data += data
+        external_data_parts << data
         ext_offset += data.bytesize
         padding = (4 - (ext_offset % 4)) % 4
-        external_data += "\0" * padding if padding > 0
+        external_data_parts << "\0" * padding if padding > 0
         ext_offset += padding
       }
 
@@ -195,6 +194,7 @@ module KDC
       sorted_exif = @exif_entries.sort_by { |e| e[0] }
 
       # Build TIFF
+      external_data = external_data_parts.join
       tiff = build_header
       tiff += build_ifd(sorted_ifd, exif_ifd_offset)
       tiff += build_ifd(sorted_exif, 0) if has_exif
@@ -211,15 +211,16 @@ module KDC
     end
 
     def build_ifd(entries, next_ifd)
-      result = [entries.length].pack("n")
+      parts = []
+      parts << [entries.length].pack("n")
       entries.each do |tag, type, count, value|
-        result += [tag].pack("n")
-        result += [type].pack("n")
-        result += [count].pack("N")
-        result += pack_value(type, count, value)
+        parts << [tag].pack("n")
+        parts << [type].pack("n")
+        parts << [count].pack("N")
+        parts << pack_value(type, count, value)
       end
-      result += [next_ifd].pack("N")
-      result
+      parts << [next_ifd].pack("N")
+      parts.join
     end
 
     def pack_value(type, count, value)
@@ -278,11 +279,11 @@ module KDC
     def build_image_data
       parts = []
       @image_data.each do |row|
-        row_data = ""
+        row_parts = []
         row.each do |r, g, b|
-          row_data += [r, g, b].pack("n*")
+          row_parts << [r, g, b].pack("n*")
         end
-        parts << row_data
+        parts << row_parts.join
       end
       parts.join
     end
