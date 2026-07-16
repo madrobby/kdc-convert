@@ -250,16 +250,54 @@ module KDC
       effective = ColorCorrection.select_params(
         @color_params,
         @flash_fired,
-        camera: @metadata&.kdc_camera&.to_s || "DC120"
+        camera: @metadata&.kdc_camera&.to_s&.upcase || "DC120"
       )
 
       return unless effective
 
+      # DC50 stretch params are calibrated for a different pipeline;
+      # skip stretch to avoid crushing blacks, then apply sRGB gamma.
+      use_stretch = @metadata&.kdc_camera != :dc50
+
       @demosaiced_image = ColorCorrection.apply(
         @demosaiced_image,
         effective[:params],
-        effective[:stretch]
+        use_stretch ? effective[:stretch] : nil
       )
+
+      apply_gamma if @metadata&.kdc_camera == :dc50
+    end
+
+    # Apply sRGB gamma curve for natural-looking output
+    def apply_gamma
+      a = 0.055
+      gamma = 1.0 / 2.4
+      clip = 0.0031308
+
+      height = @demosaiced_image.length
+      width = @demosaiced_image[0].length
+
+      height.times do |y|
+        width.times do |x|
+          r, g, b = @demosaiced_image[y][x]
+          nr = srgb_transfer(r / 65535.0, a, gamma, clip)
+          ng = srgb_transfer(g / 65535.0, a, gamma, clip)
+          nb = srgb_transfer(b / 65535.0, a, gamma, clip)
+          @demosaiced_image[y][x] = [
+            (nr * 65535.0).round,
+            (ng * 65535.0).round,
+            (nb * 65535.0).round
+          ].map { |v| [v, 65535].min }
+        end
+      end
+    end
+
+    def srgb_transfer(v, a, gamma, clip)
+      if v <= clip
+        12.92 * v
+      else
+        (1 + a) * v ** gamma - a
+      end
     end
 
     # Step 8: Apply unsharp mask sharpening (opt-in)
