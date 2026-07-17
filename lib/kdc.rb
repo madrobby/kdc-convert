@@ -157,6 +157,11 @@ module KDC
         return 1
       end
 
+      # Warn if --force is used and file exists (will be overwritten)
+      if File.exist?(output) && opts[:force]
+        Util.warn("Warning: Overwriting existing file '#{output}'")
+      end
+
       no_color_correction = opts[:no_color_correction]
       remove_stuck_pixels = !opts[:no_remove_stuck_pixels]
       sharpen = opts[:sharpen]
