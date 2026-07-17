@@ -37,6 +37,7 @@ module KDC
           format_explicit: false,
           kdc_file: nil,
           help: false,
+          force: false,
         }
 
       parser = OptionParser.new do |o|
@@ -62,6 +63,7 @@ module KDC
                                    "=r,a,t for custom radius,amount,threshold") do |v|
           opts[:sharpen] = parse_sharpen_value(v || "auto")
         end
+        o.on("-F", "--force", "Overwrite output file if it exists") { opts[:force] = true }
         o.on("-h", "--help", "Show help") { opts[:help] = true }
       end
 
@@ -115,6 +117,7 @@ module KDC
         ["--sharpen[=r,a,t]", "Apply unsharp mask sharpening (opt-in)\n" \
                                "    Bare flag or =auto for medium strength\n" \
                                "    =r,a,t for custom radius,amount,threshold"],
+        ["-F, --force", "Overwrite output file if it exists"],
         ["-h, --help", "Show help"],
       ]
 
@@ -147,6 +150,13 @@ module KDC
         output = nil
       end
       output ||= (file && file.sub(/\.kdc$/i, ".tif"))
+
+      # Check if output file exists and --force not given
+      if File.exist?(output) && !opts[:force]
+        Util.error("Error: Output file '#{output}' already exists. Use --force to overwrite.")
+        return 1
+      end
+
       no_color_correction = opts[:no_color_correction]
       remove_stuck_pixels = !opts[:no_remove_stuck_pixels]
       sharpen = opts[:sharpen]
