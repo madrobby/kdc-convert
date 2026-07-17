@@ -38,6 +38,7 @@ module KDC
           kdc_file: nil,
           help: false,
           force: false,
+          depth: 8,
         }
 
       parser = OptionParser.new do |o|
@@ -64,6 +65,7 @@ module KDC
           opts[:sharpen] = parse_sharpen_value(v || "auto")
         end
         o.on("-F", "--force", "Overwrite output file if it exists") { opts[:force] = true }
+        o.on("--depth {8|16}", "Output bit depth for TIFF (default: 8)") { |v| opts[:depth] = v.to_i }
         o.on("-h", "--help", "Show help") { opts[:help] = true }
       end
 
@@ -117,6 +119,7 @@ module KDC
         ["--sharpen[=r,a,t]", "Apply unsharp mask sharpening (opt-in)\n" \
                                "    Bare flag or =auto for medium strength\n" \
                                "    =r,a,t for custom radius,amount,threshold"],
+        ["--depth {8|16}", "Output bit depth for TIFF (default: 8)"],
         ["-F, --force", "Overwrite output file if it exists"],
         ["-h, --help", "Show help"],
       ]
@@ -187,8 +190,9 @@ module KDC
           converter.convert_to_png(output)
           bit_depth = 8
         else
-          converter.convert_to_tiff(output)
-          bit_depth = 16
+          depth = opts[:depth] == 16 ? 16 : 8
+          converter.convert_to_tiff(output, bit_depth: depth)
+          bit_depth = depth
         end
 
         file_size = File.size(output)
@@ -196,7 +200,8 @@ module KDC
         actual_width = img[0].length
         actual_height = img.length
 
-        Util.success("Saved to #{output} - #{format.upcase}, #{bit_depth}-bit, #{Util.format_resolution(actual_width, actual_height)}, #{Util.human_size(file_size)}")
+        fmt_label = format == "png" ? "PNG" : "TIFF"
+        Util.success("Saved to #{output} - #{fmt_label}, #{bit_depth}-bit, #{Util.format_resolution(actual_width, actual_height)}, #{Util.human_size(file_size)}")
         0
       rescue => e
         Util.error("Error: #{e.message}")
@@ -211,7 +216,11 @@ module KDC
 
       lines = []
       lines << format_line("Output", output, opts[:output_explicit], default_output)
-      lines << format_line("Format", format, opts[:format_explicit], default_format)
+      fmt_desc = case format
+                 when "png" then "24-bit PNG"
+                 else "#{opts[:depth] || 8}-bit RGB TIFF (big endian)"
+                 end
+      lines << format_line("Format", fmt_desc, opts[:format_explicit], default_format)
       lines << format_line("Color correct", opts[:no_color_correction] ? "OFF" : "ON", opts[:no_color_correction], "ON")
       lines << format_line("Stuck pixels", opts[:no_remove_stuck_pixels] ? "NOT removed" : "Removed", opts[:no_remove_stuck_pixels], "Removed")
 

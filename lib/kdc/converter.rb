@@ -62,11 +62,12 @@ module KDC
     end
 
     # Convert and save to TIFF file
-    def convert_to_tiff(output_path)
+    def convert_to_tiff(output_path, bit_depth: 8)
       image = convert
+      image = scale_to_8bit(image) if bit_depth == 8
 
       # Build TIFF
-      writer = TIFFWriter.new(image[0].length, image.length)
+      writer = TIFFWriter.new(image[0].length, image.length, bit_depth)
       writer.set_image_data(image)
       writer.setup_image_info
 

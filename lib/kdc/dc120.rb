@@ -118,7 +118,16 @@ module KDC
 
     # Byte-swap data (16-bit words)
     def byte_swap(data)
-      data.bytes.each_slice(2).map { |a, b| [b, a] }.flatten.pack("C*")
+      swapped = data.b
+      i = 0
+      len = swapped.bytesize - 1
+      while i < len
+        a = swapped.getbyte(i)
+        swapped.setbyte(i, swapped.getbyte(i + 1))
+        swapped.setbyte(i + 1, a)
+        i += 2
+      end
+      swapped
     end
 
     # Expand RGB to Bayer GRBG pattern
@@ -130,36 +139,45 @@ module KDC
     #     RAW(row*2+1, col+0) = B[col] + B[col+1]
     #     RAW(row*2+1, col+1) = G[col+1] << 1
     def expand_to_bayer(rgb_image)
+      packed = rgb_image.packed_pixels
+      jpg_width = rgb_image.width
+      jpg_height = rgb_image.height
+
       bayer = Array.new(RAW_HEIGHT) { Array.new(RAW_WIDTH, 0) }
 
-      # Process rows: each JPEG row maps to 2 Bayer rows
-      rgb_image.height.times do |row|
+      row = 0
+      while row < jpg_height
         bayer_row0 = row * 2
         bayer_row1 = row * 2 + 1
+        base = row * jpg_width
+        row0 = bayer[bayer_row0]
+        row1 = bayer[bayer_row1]
 
-        # Process columns in pairs (matching LibRaw: col += 2)
         col = 0
-        while col < rgb_image.width
-          pixel0 = rgb_image[col, row]
-          r_val0, g_val0, b_val0 = pixel0.r, pixel0.g, pixel0.b
+        while col < jpg_width
+          p0 = packed[base + col]
+          g0 = (p0 >> 8) & 0xFF
+          r0 = (p0 >> 16) & 0xFF
+          b0 = p0 & 0xFF
 
-          if col + 1 < rgb_image.width
-            pixel1 = rgb_image[col + 1, row]
-            r_val1, g_val1, b_val1 = pixel1.r, pixel1.g, pixel1.b
+          if col + 1 < jpg_width
+            p1 = packed[base + col + 1]
+            g1 = (p1 >> 8) & 0xFF
+            r1 = (p1 >> 16) & 0xFF
+            b1 = p1 & 0xFF
 
-            # GRBG pattern (matching LibRaw)
-            bayer[bayer_row0][col] = g_val0 << 1                    # G
-            bayer[bayer_row0][col + 1] = r_val0 + r_val1           # R
-            bayer[bayer_row1][col] = b_val0 + b_val1               # B
-            bayer[bayer_row1][col + 1] = g_val1 << 1               # G
+            row0[col] = g0 << 1
+            row0[col + 1] = r0 + r1
+            row1[col] = b0 + b1
+            row1[col + 1] = g1 << 1
           else
-            # Odd column at edge - just use single pixel values
-            bayer[bayer_row0][col] = g_val0 << 1
-            bayer[bayer_row1][col] = b_val0 << 1
+            row0[col] = g0 << 1
+            row1[col] = b0 << 1
           end
 
           col += 2
         end
+        row += 1
       end
 
       bayer
@@ -180,45 +198,130 @@ module KDC
     # Skips near-uniform areas where the local range is <= 15, since a
     # relative threshold on a tiny range produces false positives from
     # normal JPEG noise.
-    #
-    # Operates in-place on the image's pixel data.
     def remove_stuck_pixels(rgb_image)
       height = rgb_image.height
       width = rgb_image.width
       return rgb_image if height <= 2 || width <= 2
 
-      height.times do |y|
-        width.times do |x|
-          neighbors = []
-          [[0, -1], [0, 1], [-1, 0], [1, 0]].each do |dy, dx|
-            ny, nx = y + dy, x + dx
-            next unless ny >= 0 && ny < height && nx >= 0 && nx < width
-            neighbors << rgb_image[nx, ny]
+      pixels = rgb_image.packed_pixels
+      result = pixels.dup
+
+      nr = Array.new(4)
+      ng = Array.new(4)
+      nb = Array.new(4)
+
+      y = 0
+      while y < height
+        x = 0
+        while x < width
+          idx = y * width + x
+
+          ncount = 0
+
+          if y > 0
+            np = result[(y - 1) * width + x]
+            nr[ncount] = (np >> 16) & 0xFF
+            ng[ncount] = (np >> 8) & 0xFF
+            nb[ncount] = np & 0xFF
+            ncount += 1
           end
-          next if neighbors.empty?
-
-          p = rgb_image[x, y]
-          stuck = false
-          r_out = g_out = b_out = nil
-
-          3.times do |c|
-            vals = neighbors.map { |n| n.send(%i[r g b][c]) }
-            mean = vals.sum.to_f / vals.length
-            range = vals.max - vals.min
-            next unless range > 15
-            stuck = true if (p.send(%i[r g b][c]) - mean).abs > 0.50 * range
+          if y + 1 < height
+            np = result[(y + 1) * width + x]
+            nr[ncount] = (np >> 16) & 0xFF
+            ng[ncount] = (np >> 8) & 0xFF
+            nb[ncount] = np & 0xFF
+            ncount += 1
+          end
+          if x > 0
+            np = result[y * width + (x - 1)]
+            nr[ncount] = (np >> 16) & 0xFF
+            ng[ncount] = (np >> 8) & 0xFF
+            nb[ncount] = np & 0xFF
+            ncount += 1
+          end
+          if x + 1 < width
+            np = result[y * width + (x + 1)]
+            nr[ncount] = (np >> 16) & 0xFF
+            ng[ncount] = (np >> 8) & 0xFF
+            nb[ncount] = np & 0xFF
+            ncount += 1
           end
 
-          next unless stuck
+          if ncount > 0
+            packed = pixels[idx]
+            pr = (packed >> 16) & 0xFF
+            pg = (packed >> 8) & 0xFF
+            pb = packed & 0xFF
 
-          new_r = median_of(neighbors.map(&:r))
-          new_g = median_of(neighbors.map(&:g))
-          new_b = median_of(neighbors.map(&:b))
-          rgb_image[x, y] = PureJPEG::Source::Pixel.new(new_r, new_g, new_b)
+            stuck = false
+
+            # R channel
+            r_sum = nr[0]; r_min = nr[0]; r_max = nr[0]
+            ni = 1
+            while ni < ncount
+              v = nr[ni]
+              r_sum += v
+              r_min = v if v < r_min
+              r_max = v if v > r_max
+              ni += 1
+            end
+            r_range = r_max - r_min
+            if r_range > 15 && (pr * ncount - r_sum).abs * 2 > r_range * ncount
+              stuck = true
+            end
+
+            unless stuck
+              # G channel
+              g_sum = ng[0]; g_min = ng[0]; g_max = ng[0]
+              ni = 1
+              while ni < ncount
+                v = ng[ni]
+                g_sum += v
+                g_min = v if v < g_min
+                g_max = v if v > g_max
+                ni += 1
+              end
+              g_range = g_max - g_min
+              if g_range > 15 && (pg * ncount - g_sum).abs * 2 > g_range * ncount
+                stuck = true
+              end
+            end
+
+            unless stuck
+              # B channel
+              b_sum = nb[0]; b_min = nb[0]; b_max = nb[0]
+              ni = 1
+              while ni < ncount
+                v = nb[ni]
+                b_sum += v
+                b_min = v if v < b_min
+                b_max = v if v > b_max
+                ni += 1
+              end
+              b_range = b_max - b_min
+              if b_range > 15 && (pb * ncount - b_sum).abs * 2 > b_range * ncount
+                stuck = true
+              end
+            end
+
+            if stuck
+              sr = nr[0, ncount].sort
+              sg = ng[0, ncount].sort
+              sb = nb[0, ncount].sort
+              mid = ncount / 2
+              med_r = ncount.odd? ? sr[mid] : (sr[mid - 1] + sr[mid]) / 2
+              med_g = ncount.odd? ? sg[mid] : (sg[mid - 1] + sg[mid]) / 2
+              med_b = ncount.odd? ? sb[mid] : (sb[mid - 1] + sb[mid]) / 2
+              result[idx] = (med_r << 16) | (med_g << 8) | med_b
+            end
+          end
+
+          x += 1
         end
+        y += 1
       end
 
-      rgb_image
+      PureJPEG::Image.new(width, height, result, icc_profile: rgb_image.icc_profile)
     end
 
     def median_of(values)

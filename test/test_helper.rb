@@ -15,7 +15,11 @@ module TestHelper
   alias_method :image_path, :kdc_path
 
   def reference_tiff_path
-    File.join(FIXTURES_PATH, "DC120_1_ref.tif")
+    File.join(FIXTURES_PATH, "DC120_1_ref_8.tif")
+  end
+
+  def reference_tiff_path_16
+    File.join(FIXTURES_PATH, "DC120_1_ref_16.tif")
   end
 
   def reference_png_path
@@ -23,17 +27,21 @@ module TestHelper
   end
 
   def reference_tiff_path_2
-    File.join(FIXTURES_PATH, "DC120_2_ref.tif")
+    File.join(FIXTURES_PATH, "DC120_2_ref_8.tif")
   end
 
-  def convert_to_temp(kdc_file, format: :tif)
+  def reference_tiff_path_2_16
+    File.join(FIXTURES_PATH, "DC120_2_ref_16.tif")
+  end
+
+  def convert_to_temp(kdc_file, format: :tif, bit_depth: 8)
     Dir.mktmpdir do |dir|
       ext = format == :tif ? ".tif" : ".png"
       output = File.join(dir, "output#{ext}")
 
       converter = KDC::Converter.new(kdc_file, color_lut: nil, remove_stuck_pixels: false)
       if format == :tif
-        converter.convert_to_tiff(output)
+        converter.convert_to_tiff(output, bit_depth: bit_depth)
       else
         converter.convert_to_png(output)
       end

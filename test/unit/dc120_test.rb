@@ -46,17 +46,21 @@ class DC120Test < Minitest::Test
   end
   
   class MockImage
-    attr_reader :width, :height
+    attr_reader :width, :height, :packed_pixels
     
     def initialize(width, height)
       @width = width
       @height = height
+      @packed_pixels = Array.new(width * height, 0)
       @pixels = {}
       
-      # Pre-populate with some test data
       height.times do |y|
         width.times do |x|
-          @pixels[[x, y]] = OpenStruct.new(r: x * 10, g: y * 10, b: (x + y) * 10)
+          r = x * 10
+          g = y * 10
+          b = (x + y) * 10
+          @packed_pixels[y * width + x] = (r << 16) | (g << 8) | b
+          @pixels[[x, y]] = OpenStruct.new(r: r, g: g, b: b)
         end
       end
     end

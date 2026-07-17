@@ -67,4 +67,22 @@ class ConversionTest < Minitest::Test
       assert_equal expected_hash, actual_hash, "TIFF output should match reference"
     end
   end
+
+  def test_dc120_1_16bit_tiff_hash_matches_reference
+    convert_to_temp(kdc_path("DC120-flash-raw.kdc"), format: :tif, bit_depth: 16) do |output|
+      actual_hash = file_sha256(output)
+      expected_hash = file_sha256(reference_tiff_path_16)
+
+      assert_equal expected_hash, actual_hash, "16-bit TIFF output should match reference"
+    end
+  end
+
+  def test_dc120_2_16bit_tiff_hash_matches_reference
+    convert_to_temp(kdc_path("DC120-flash-high.kdc"), format: :tif, bit_depth: 16) do |output|
+      actual_hash = file_sha256(output)
+      expected_hash = file_sha256(reference_tiff_path_2_16)
+
+      assert_equal expected_hash, actual_hash, "16-bit TIFF output should match reference"
+    end
+  end
 end

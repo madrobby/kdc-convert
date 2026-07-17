@@ -278,12 +278,22 @@ module KDC
 
     def build_image_data
       parts = []
-      @image_data.each do |row|
-        row_parts = []
-        row.each do |r, g, b|
-          row_parts << [r, g, b].pack("n*")
+      if @bits == 8
+        @image_data.each do |row|
+          row_parts = []
+          row.each do |r, g, b|
+            row_parts << [r, g, b].pack("C*")
+          end
+          parts << row_parts.join
         end
-        parts << row_parts.join
+      else
+        @image_data.each do |row|
+          row_parts = []
+          row.each do |r, g, b|
+            row_parts << [r, g, b].pack("n*")
+          end
+          parts << row_parts.join
+        end
       end
       parts.join
     end
