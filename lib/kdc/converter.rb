@@ -193,18 +193,28 @@ module KDC
 
       white_level = @metadata&.kdc_white_level || 510
       scale_factor = 65535.0 / white_level
+      clamp_max = 65535
 
       height = @demosaiced_image.length
       width = @demosaiced_image[0].length
-      height.times do |y|
-        width.times do |x|
-          r, g, b = @demosaiced_image[y][x]
-          @demosaiced_image[y][x] = [
-            (r * scale_factor).round,
-            (g * scale_factor).round,
-            (b * scale_factor).round
-          ].map { |v| [v, 65535].min }
+      y = 0
+      while y < height
+        row = @demosaiced_image[y]
+        x = 0
+        while x < width
+          pixel = row[x]
+          r = (pixel[0] * scale_factor).round
+          g = (pixel[1] * scale_factor).round
+          b = (pixel[2] * scale_factor).round
+          r = clamp_max if r > clamp_max
+          g = clamp_max if g > clamp_max
+          b = clamp_max if b > clamp_max
+          pixel[0] = r
+          pixel[1] = g
+          pixel[2] = b
+          x += 1
         end
+        y += 1
       end
     end
 
@@ -214,16 +224,41 @@ module KDC
 
       height = image.length
       width = image[0].length
-      Array.new(height) do |y|
-        Array.new(width) do |x|
-          r, g, b = image[y][x]
-          [
-            (r / 256).round,
-            (g / 256).round,
-            (b / 256).round
-          ].map { |v| [v, 255].min }
+
+      # Preallocate flat output array
+      flat = Array.new(height * width * 3)
+      idx = 0
+      y = 0
+      while y < height
+        row = image[y]
+        x = 0
+        while x < width
+          pixel = row[x]
+          flat[idx] = (pixel[0] >> 8)
+          flat[idx + 1] = (pixel[1] >> 8)
+          flat[idx + 2] = (pixel[2] >> 8)
+          idx += 3
+          x += 1
         end
+        y += 1
       end
+
+      # Reshape to 2D
+      result = Array.new(height)
+      y = 0
+      idx = 0
+      while y < height
+        row = Array.new(width)
+        x = 0
+        while x < width
+          row[x] = [flat[idx], flat[idx + 1], flat[idx + 2]]
+          idx += 3
+          x += 1
+        end
+        result[y] = row
+        y += 1
+      end
+      result
     end
 
     # Step 6: Apply aspect ratio correction (stretch width)
@@ -418,27 +453,39 @@ DC50_SRGB_MATRIX = [
       y_ratio = src_height.to_f / target_height
 
       # Pre-compute x weights (reused across all rows)
-      x_weights = Array.new(target_width) do |tx|
+      x_weights = Array.new(target_width)
+      tx = 0
+      while tx < target_width
         src_x = tx * x_ratio
         x0 = src_x.floor
-        x1 = [x0 + 1, src_width - 1].min
+        x1 = x0 + 1
+        x1 = src_width - 1 if x1 >= src_width
         fx = src_x - x0
-        [x0, x1, fx, 1.0 - fx]
+        x_weights[tx] = [x0, x1, fx, 1.0 - fx]
+        tx += 1
       end
 
       # Pre-compute y weights (reused across all columns)
-      y_weights = Array.new(target_height) do |ty|
+      y_weights = Array.new(target_height)
+      ty = 0
+      while ty < target_height
         src_y = ty * y_ratio
         y0 = src_y.floor
-        y1 = [y0 + 1, src_height - 1].min
+        y1 = y0 + 1
+        y1 = src_height - 1 if y1 >= src_height
         fy = src_y - y0
-        [y0, y1, fy, 1.0 - fy]
+        y_weights[ty] = [y0, y1, fy, 1.0 - fy]
+        ty += 1
       end
 
-      Array.new(target_height) do |ty|
+      # Preallocate flat result array
+      result = Array.new(target_height * target_width * 3)
+      ty = 0
+      idx = 0
+      while ty < target_height
         y0, y1, fy, fy_inv = y_weights[ty]
-
-        Array.new(target_width) do |tx|
+        tx = 0
+        while tx < target_width
           x0, x1, fx, fx_inv = x_weights[tx]
 
           # Interpolate each channel (unrolled)
@@ -457,9 +504,32 @@ DC50_SRGB_MATRIX = [
           b  = (b0 * fy_inv + b1 * fy).round
           b  = 65535 if b > 65535
 
-          [r, g, b]
+          result[idx] = r
+          result[idx + 1] = g
+          result[idx + 2] = b
+          idx += 3
+
+          tx += 1
         end
+        ty += 1
       end
+
+      # Reshape to 2D for compatibility
+      output = Array.new(target_height)
+      ty = 0
+      idx = 0
+      while ty < target_height
+        row = Array.new(target_width)
+        tx = 0
+        while tx < target_width
+          row[tx] = [result[idx], result[idx + 1], result[idx + 2]]
+          idx += 3
+          tx += 1
+        end
+        output[ty] = row
+        ty += 1
+      end
+      output
     end
 
     # Extract Make from metadata

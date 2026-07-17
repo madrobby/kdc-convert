@@ -31,7 +31,29 @@ module KDC
     private
 
     def expand_pixels
-      @image_data.flat_map { |row| row.flat_map { |r, g, b| [r, g, b] } }.pack("C*")
+      height = @height
+      width = @width
+      stride = width * 3
+      total_pixels = height * stride
+
+      # Preallocate output string with exact capacity
+      pixels = String.new(encoding: Encoding::BINARY, capacity: total_pixels)
+      data = @image_data
+
+      y = 0
+      while y < height
+        row = data[y]
+        x = 0
+        idx = 0
+        while x < width
+          r, g, b = row[x]
+          pixels << (r & 0xFF).chr << (g & 0xFF).chr << (b & 0xFF).chr
+          x += 1
+        end
+        y += 1
+      end
+
+      pixels
     end
 
     def validate_pixels(pixels)
@@ -64,10 +86,12 @@ module KDC
       stride = @width * 3
       raw = String.new(encoding: Encoding::BINARY, capacity: @height * (1 + stride))
 
-      @height.times do |y|
+      y = 0
+      while y < @height
         row_start = y * stride
         row = pixels.byteslice(row_start, stride)
         raw << "\x00".b << row
+        y += 1
       end
 
       raw

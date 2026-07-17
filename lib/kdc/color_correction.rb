@@ -61,49 +61,104 @@ module KDC
       def apply(image, params, stretch_params)
         return image unless params
 
-        gains = {}
-        offsets = {}
-        params.each do |channel, p|
-          gains[channel] = p["gain"].to_f
-          offsets[channel] = p["offset"].to_f
-        end
+        # Precompute channel constants
+        r_gain = params["R"]["gain"].to_f
+        g_gain = params["G"]["gain"].to_f
+        b_gain = params["B"]["gain"].to_f
+        r_offset = params["R"]["offset"].to_f
+        g_offset = params["G"]["offset"].to_f
+        b_offset = params["B"]["offset"].to_f
 
         stretch_gains = stretch_params&.dig("gains")&.map(&:to_f)
         stretch_offsets = stretch_params&.dig("offsets")&.map(&:to_f)
         do_stretch = !stretch_gains.nil? && !stretch_offsets.nil?
 
+        # Precompute constants
+        inv_256 = 1.0 / 256.0
+        mul_256 = 256.0
+
+        # Stretch constants (if enabled)
+        if do_stretch
+          rs_gain = stretch_gains[0]
+          rs_off = stretch_offsets[0]
+          gs_gain = stretch_gains[1]
+          gs_off = stretch_offsets[1]
+          bs_gain = stretch_gains[2]
+          bs_off = stretch_offsets[2]
+        end
+
         height = image.length
         width = image[0].length
-        channels = ["R", "G", "B"]
+        total = height * width
 
-        Array.new(height) do |y|
-          Array.new(width) do |x|
-            row_data = image[y][x]
-            new_row = [0, 0, 0]
-
-            3.times do |c|
-              channel = channels[c]
-              input_val = row_data[c].to_f
-
-              # Step 1: convert 16-bit to float
-              x_float = input_val / 256.0
-
-              # Step 2: per-channel linear transform
-              y_float = gains[channel] * x_float + offsets[channel]
-
-              # Step 3: stretch (dynamic range extension)
-              if do_stretch
-                y_float = stretch_gains[c] * y_float + stretch_offsets[c]
-              end
-
-              # Step 4: back to 16-bit, clipped
-              new_row[c] = [y_float * 256.0, 0].max.round
-              new_row[c] = [new_row[c], 65535].min
-            end
-
-            new_row
+        # Flatten input image to 1D array for faster access
+        flat = Array.new(total * 3)
+        idx = 0
+        y = 0
+        while y < height
+          row = image[y]
+          x = 0
+          while x < width
+            flat[idx] = row[x][0]
+            flat[idx + 1] = row[x][1]
+            flat[idx + 2] = row[x][2]
+            idx += 3
+            x += 1
           end
+          y += 1
         end
+
+        # Process all pixels
+        y = 0
+        while y < height
+          row = image[y]
+          x = 0
+          base = y * width * 3
+          while x < width
+            i = base + x * 3
+
+            # R channel
+            val = flat[i]
+            x_float = val * inv_256
+            y_float = r_gain * x_float + r_offset
+            if do_stretch
+              y_float = rs_gain * y_float + rs_off
+            end
+            v = (y_float * mul_256).round
+            v = 0 if v < 0
+            v = 65535 if v > 65535
+            row[x][0] = v
+
+            # G channel
+            val = flat[i + 1]
+            x_float = val * inv_256
+            y_float = g_gain * x_float + g_offset
+            if do_stretch
+              y_float = gs_gain * y_float + gs_off
+            end
+            v = (y_float * mul_256).round
+            v = 0 if v < 0
+            v = 65535 if v > 65535
+            row[x][1] = v
+
+            # B channel
+            val = flat[i + 2]
+            x_float = val * inv_256
+            y_float = b_gain * x_float + b_offset
+            if do_stretch
+              y_float = bs_gain * y_float + bs_off
+            end
+            v = (y_float * mul_256).round
+            v = 0 if v < 0
+            v = 65535 if v > 65535
+            row[x][2] = v
+
+            x += 1
+          end
+          y += 1
+        end
+
+        image
       end
     end
 
