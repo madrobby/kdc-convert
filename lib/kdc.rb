@@ -46,9 +46,9 @@ module KDC
 
         o.on("-m", "--metadata", "Show KDC metadata") { opts[:metadata] = true }
         o.on("-o", "--output PATH", "Output file path") { |v| opts[:output] = v; opts[:output_explicit] = true }
-        o.on("-f", "--format {tif|png}", "Output format: tif or png (default: auto-detect from -o extension)") do |v|
+        o.on("-f", "--format {tif|png|dng}", "Output format: tif, png, or dng (default: auto-detect from -o extension)") do |v|
           opts[:format_explicit] = true
-          if %w[tif png].include?(v.downcase)
+          if %w[tif png dng].include?(v.downcase)
             opts[:format] = v.downcase
           else
             Util.warn("Unknown format '#{v}', defaulting to tif")
@@ -105,13 +105,13 @@ module KDC
       puts "kdc - Pure Ruby KDC file parser and converter (LibRaw port)"
       puts
       puts "Usage:"
-      puts "  kdc [options] <file.kdc>    Convert KDC to TIFF/PNG (default)"
+      puts "  kdc [options] <file.kdc>    Convert KDC to TIFF/PNG/DNG (default: TIFF)"
 
       cols = 60
       opts = [
         ["-m, --metadata", "Show KDC metadata"],
         ["-o, --output PATH", "Output file path"],
-        ["-f, --format {tif|png}", "Output format: tif or png (default: auto-detect from -o extension)"],
+        ["-f, --format {tif|png|dng}", "Output format: tif, png, or dng (default: auto-detect from -o extension)"],
         ["-v, --verbose", "Show step-by-step progress with timings"],
         ["--no-color", "Disable colored output"],
         ["--no-color-correction", "Skip color correction step"],
@@ -165,10 +165,18 @@ module KDC
         Util.warn("Warning: Overwriting existing file '#{output}'")
       end
 
+      format = resolve_format(opts[:format], output)
+
+      # Warn about ignored options for DNG format
+      if format == "dng"
+        Util.warn("--sharpen has no effect with DNG output") if opts[:sharpen]
+        Util.warn("--no-color-correction has no effect with DNG output") if opts[:no_color_correction]
+        Util.warn("--depth has no effect with DNG output (always 16-bit)") if opts[:depth] && opts[:depth] != 8
+      end
+
       no_color_correction = opts[:no_color_correction]
       remove_stuck_pixels = !opts[:no_remove_stuck_pixels]
       sharpen = opts[:sharpen]
-      format = resolve_format(opts[:format], output)
 
       Util.log("Converting #{file} -> #{output} (#{format})")
 
@@ -176,7 +184,7 @@ module KDC
         print_conversion_options(opts, output, format)
       end
 
-      color_lut = if no_color_correction
+      color_lut = if format == "dng" || no_color_correction
                     nil
                   else
                     lut_path = File.join(File.dirname(__FILE__), "..", "reference_lut.json")
@@ -186,6 +194,9 @@ module KDC
       converter = KDC::Converter.new(file, color_lut: color_lut, sharpen: sharpen, remove_stuck_pixels: remove_stuck_pixels)
       begin
         case format
+        when "dng"
+          converter.convert_to_dng(output)
+          bit_depth = 16
         when "png"
           converter.convert_to_png(output)
           bit_depth = 8
@@ -196,11 +207,15 @@ module KDC
         end
 
         file_size = File.size(output)
-        img = converter.demosaiced_image
+        img = format == "dng" ? converter.raw_image : converter.demosaiced_image
         actual_width = img[0].length
         actual_height = img.length
 
-        fmt_label = format == "png" ? "PNG" : "TIFF"
+        fmt_label = case format
+                    when "dng" then "DNG"
+                    when "png" then "PNG"
+                    else "TIFF"
+                    end
         Util.success("Saved to #{output} - #{fmt_label}, #{bit_depth}-bit, #{Util.format_resolution(actual_width, actual_height)}, #{Util.human_size(file_size)}")
         0
       rescue => e
@@ -216,26 +231,32 @@ module KDC
 
       lines = []
       lines << format_line("Output", output, opts[:output_explicit], default_output)
-      fmt_desc = case format
+        fmt_desc = case format
                  when "png" then "24-bit PNG"
+                 when "dng" then "16-bit DNG (raw Bayer)"
                  else "#{opts[:depth] || 8}-bit RGB TIFF (big endian)"
                  end
       lines << format_line("Format", fmt_desc, opts[:format_explicit], default_format)
-      lines << format_line("Color correct", opts[:no_color_correction] ? "OFF" : "ON", opts[:no_color_correction], "ON")
-      lines << format_line("Stuck pixels", opts[:no_remove_stuck_pixels] ? "NOT removed" : "Removed", opts[:no_remove_stuck_pixels], "Removed")
 
-      sharpen_info = if opts[:sharpen]
-                       s = opts[:sharpen]
-                       label = if s == { radius: Sharpen::AUTO_RADIUS, amount: Sharpen::AUTO_AMOUNT, threshold: Sharpen::AUTO_THRESHOLD }
-                                 "auto (radius=#{Sharpen::AUTO_RADIUS}, amount=#{Sharpen::AUTO_AMOUNT}, threshold=#{Sharpen::AUTO_THRESHOLD})"
-                               else
-                                 "custom (radius=#{s[:radius]}, amount=#{s[:amount]}, threshold=#{s[:threshold]})"
-                               end
-                       [label, true]
-                     else
-                       ["OFF", false]
-                     end
-      lines << format_line("Sharpen", sharpen_info[0], sharpen_info[1], "OFF")
+      if format == "dng"
+        lines << format_line("Stuck pixels", opts[:no_remove_stuck_pixels] ? "NOT removed" : "Removed", opts[:no_remove_stuck_pixels], "Removed")
+      else
+        lines << format_line("Color correct", opts[:no_color_correction] ? "OFF" : "ON", opts[:no_color_correction], "ON")
+        lines << format_line("Stuck pixels", opts[:no_remove_stuck_pixels] ? "NOT removed" : "Removed", opts[:no_remove_stuck_pixels], "Removed")
+
+        sharpen_info = if opts[:sharpen]
+                         s = opts[:sharpen]
+                         label = if s == { radius: Sharpen::AUTO_RADIUS, amount: Sharpen::AUTO_AMOUNT, threshold: Sharpen::AUTO_THRESHOLD }
+                                   "auto (radius=#{Sharpen::AUTO_RADIUS}, amount=#{Sharpen::AUTO_AMOUNT}, threshold=#{Sharpen::AUTO_THRESHOLD})"
+                                 else
+                                   "custom (radius=#{s[:radius]}, amount=#{s[:amount]}, threshold=#{s[:threshold]})"
+                                 end
+                         [label, true]
+                       else
+                         ["OFF", false]
+                       end
+        lines << format_line("Sharpen", sharpen_info[0], sharpen_info[1], "OFF")
+      end
 
       puts lines.join("\n")
     end
@@ -249,11 +270,12 @@ module KDC
     end
 
     def self.resolve_format(format_flag, output)
-      return format_flag if format_flag && %w[tif png].include?(format_flag)
+      return format_flag if format_flag && %w[tif png dng].include?(format_flag)
 
       # Auto-detect from output extension
       ext = File.extname(output).downcase.delete(".")
       return "png" if ext == "png"
+      return "dng" if ext == "dng"
       "tif"
     end
 

@@ -6,6 +6,8 @@ require_relative "dc50"
 require_relative "demosaic"
 require_relative "tiff_writer"
 require_relative "png_writer"
+require_relative "dng_writer"
+require_relative "camera_data"
 require_relative "color_correction"
 require_relative "sharpen"
 require_relative "util"
@@ -98,7 +100,103 @@ module KDC
       output_path
     end
 
+    # Convert and save to DNG file
+    def convert_to_dng(output_path)
+      parse_metadata
+      decode_raw
+
+      camera = @metadata.kdc_camera
+      base = CameraData::COLOR_MATRICES[camera] || CameraData::COLOR_MATRICES[:dc120]
+      cam_data = base.dup
+
+      white_level = @metadata.kdc_white_level || 255
+      as_shot_neutral = compute_as_shot_neutral
+
+      thumbnail_data = extract_thumbnail
+
+      writer = DNGWriter.new(
+        @raw_image[0].length, @raw_image.length,
+        cam_data,
+        white_level: white_level,
+        as_shot_neutral: as_shot_neutral,
+        make: extract_make,
+        model: extract_model,
+        thumbnail: thumbnail_data
+      )
+      writer.set_raw_data(@raw_image)
+
+      writer.set_exif(
+        exposure_time: @metadata&.exposure_time,
+        f_number: @metadata&.f_number,
+        iso: @metadata&.iso,
+        focal_length: @metadata&.focal_length,
+        date_time_original: @metadata&.date_time_original
+      )
+
+      writer.write(output_path)
+      output_path
+    end
+
     private
+
+# Extract JPEG thumbnail from KDC file
+    # The thumbnail JPEG data is in the second IFD with correct offset/size,
+    # but dimensions are in the first IFD.
+    def extract_thumbnail
+      return nil unless @metadata&.ifds&.first&.entries
+
+      first_entries = @metadata.ifds.first.entries
+      second_ifd = @metadata.second_ifd
+      return nil unless second_ifd
+
+      second_entries = second_ifd.entries
+
+      # Thumbnail dimensions from first IFD (80x60)
+      width_entry = first_entries.find { |e| e.tag == 0x0100 }  # TAG_IMAGE_WIDTH
+      height_entry = first_entries.find { |e| e.tag == 0x0101 } # TAG_IMAGE_LENGTH
+
+      # Thumbnail offset/size/compression from second IFD (correct values)
+      offset_entry = second_entries.find { |e| e.tag == 0x0111 } # TAG_STRIP_OFFSETS
+      bytes_entry = second_entries.find { |e| e.tag == 0x0117 }  # TAG_STRIP_BYTE_COUNTS
+      comp_entry = second_entries.find { |e| e.tag == 0x0103 }   # TAG_COMPRESSION
+      samples_entry = second_entries.find { |e| e.tag == 0x0115 } # TAG_SAMPLES_PER_PIXEL
+      photometric_entry = second_entries.find { |e| e.tag == 0x0106 } # TAG_PHOTOMETRIC_INTERP
+
+      return nil unless offset_entry&.value && bytes_entry&.value
+
+      thumb_offset = offset_entry.value.is_a?(Array) ? offset_entry.value.first : offset_entry.value
+      thumb_bytes = bytes_entry.value.is_a?(Array) ? bytes_entry.value.first : bytes_entry.value
+      thumb_width = width_entry&.value || 80
+      thumb_height = height_entry&.value || 60
+      thumb_comp = comp_entry&.value || 7 # JPEG
+      thumb_samples = samples_entry&.value || 3
+      thumb_photometric = photometric_entry&.value || 2 # RGB
+
+      # Read thumbnail data from file
+      File.open(@kdc_path, "rb") do |f|
+        f.seek(thumb_offset)
+        data = f.read(thumb_bytes)
+        return nil unless data && data.bytesize == thumb_bytes
+
+        # KDC stores JPEG thumbnail data byte-swapped (each 16-bit word swapped); fix it
+        # Swap bytes within each 16-bit word to get correct JPEG byte order
+        data = data.unpack("n*").map { |w| (w >> 8) | ((w & 0xFF) << 8) }.pack("n*") if thumb_comp == 7
+
+        # Trim to actual JPEG data (SOI to EOI) - KDC may include padding bytes
+        soi = data.index("\xFF\xD8".b)
+        eoi = data.index("\xFF\xD9".b, soi)
+        data = data[soi, eoi - soi + 2] if soi && eoi
+
+        {
+          data: data,
+          width: thumb_width,
+          height: thumb_height,
+          compression: thumb_comp,
+          samples_per_pixel: thumb_samples,
+          photometric_interpretation: 6  # YCbCr for JPEG
+        }
+      end
+    end
 
     # Step 1: Parse KDC metadata
     def parse_metadata
@@ -541,6 +639,27 @@ DC50_SRGB_MATRIX = [
     # Extract Model from metadata
     def extract_model
       @metadata&.model || "Unknown"
+    end
+
+    # Compute AsShotNeutral for DNG from LUT gains or fallback defaults
+    def compute_as_shot_neutral
+      flash_tag = @metadata&.flash&.to_i || 0
+      flash_fired = (flash_tag & 1) == 1
+
+      if @color_params
+        camera_name = @metadata&.kdc_camera&.to_s&.upcase || "DC120"
+        params = @color_params.dig("cameras", camera_name, flash_fired ? "flash_params" : "nonflash_params")
+        if params && (gains = params["linear"])
+          r_gain = gains.dig("R", "gain") || 1.0
+          g_gain = gains.dig("G", "gain") || 1.0
+          b_gain = gains.dig("B", "gain") || 1.0
+          inv = [1.0 / r_gain, 1.0 / g_gain, 1.0 / b_gain]
+          sum = inv.sum
+          return inv.map { |v| v * inv.length / sum } if sum > 0
+        end
+      end
+
+      flash_fired ? [1.0, 1.0, 1.0] : [1.0, 1.0, 1.0]
     end
 
   end

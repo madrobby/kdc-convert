@@ -92,3 +92,14 @@ Sample files in `test/fixtures/` serve as regression tests. Tests use `minitest`
 - PNG writer is pure Ruby with Zlib deflate, no external dependencies
 - Sharpen uses separable Gaussian blur (two 1D passes) for O(n·k) complexity
 - Stuck pixel removal operates on both JPEG-decoded RGB (4-connected neighbors, 50% range threshold) and Bayer data (same-color 4-connected at distance 2, 75% range threshold + 200 absolute minimum in 16-bit space)
+
+## DNG Output
+
+- Uses IFD chain (IFD0→IFD1 via nextIFD pointer), NOT SubIFDs
+- IFD0: DNGVersion (1.4.0.0), UniqueCameraModel, Make, Model, ColorMatrix1, CalibrationIlluminant1, AsShotNeutral, DefaultCropSize, ExifIFD pointer (0x8769)
+- ExifIFD (pointed to by 0x8769): ExposureTime, FNumber, ISOSpeedRatings, FocalLength, DateTimeOriginal
+- IFD1: NewSubFileType=0, raw image tags, CFARepeatPatternDim, CFAPattern (0x828E, no 0x828C to avoid dcraw confusion with 0xC616), BlackLevel, WhiteLevel=65535
+- Raw pixel data is scaled to fill 16-bit range (`* 65535 / white_level`) before writing
+- `cfa_pattern` in camera_data must be `[1, 0, 2, 1]` (GRBG), not `[0, 1, 1, 2]`
+- ExifTool validate: 4 cosmetic warnings (ExifTool confusion about DNG tags 0x829D/0x829E in IFD1, and 0xC621/0xC616 tag ID swap)
+- dcraw reads CFA correctly (GR/BG, 3 colors); saturation=65535 from WhiteLevel
