@@ -40,7 +40,7 @@ module KDC
 
     # Full conversion pipeline
     def convert
-      t0 = Util.now
+      @t0 = Util.now
       Util.reset_steps
 
       steps = [
@@ -59,10 +59,6 @@ module KDC
         send(method)
         Util.step(name, Util.now - step_t)
       end
-
-      total = Util.now - t0
-      Util.log("Total: #{Util.format_duration(total)}")
-      Util.log("")
 
       @demosaiced_image
     end
@@ -88,6 +84,7 @@ module KDC
       step_t = Util.now
       writer.write(output_path)
       Util.step("Write TIFF", Util.now - step_t)
+      log_total
       output_path
     end
 
@@ -111,11 +108,13 @@ module KDC
         writer.write(output_path)
         Util.step("Write PNG", Util.now - step_t)
       end
+      log_total
       output_path
     end
 
     # Convert and save to DNG file
     def convert_to_dng(output_path)
+      @t0 = Util.now
       Util.reset_steps
 
       step_t = Util.now
@@ -159,10 +158,16 @@ module KDC
       step_t = Util.now
       writer.write(output_path)
       Util.step("Write DNG", Util.now - step_t)
+      log_total
       output_path
     end
 
     private
+
+    def log_total
+      Util.log("Total: #{Util.format_duration(Util.now - @t0)}")
+      Util.log("")
+    end
 
     # Apply PNG glitch effect using pnglitch gem
     # Writes initial PNG to tempfile, glitches, saves to output
