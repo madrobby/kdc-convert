@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-kdc-convert is a pure Ruby KDC file parser and converter for Kodak DC120 and DC50 digital cameras. It ports LibRaw's KDC decoding logic to Ruby, converting raw `.KDC` files to 16-bit TIFF or 8-bit PNG images.
+kdc-convert is a pure Ruby KDC file parser and converter for Kodak DC120 and DC50 digital cameras. It ports LibRaw's KDC decoding logic to Ruby, converting raw `.KDC` files to 16-bit TIFF, 8-bit PNG, or DNG images.
 
 ## Agent Rules
 
@@ -13,7 +13,7 @@ IMPORTANT: Keep all temporary and scratch work files in ./tmp for easy cleanup.
 ### Core Pipeline
 
 ```
-KDC → KDCParser.parse_kdc → DC120Decoder.decode → Menon2007.demosaic → Converter → TIFFWriter / PNGWriter
+KDC → KDCParser.parse_kdc → DC120Decoder.decode → Menon2007.demosaic → Converter → TIFFWriter / PNGWriter / DNGWriter
 ```
 
 ### Module Structure
@@ -21,12 +21,13 @@ KDC → KDCParser.parse_kdc → DC120Decoder.decode → Menon2007.demosaic → C
 - `KDC::KDCParser` — Parses TIFF headers, IFDs, and extracts KDC metadata into `KDCMetadata` struct
 - `KDC::DC120Decoder` — Decodes raw Bayer data (compressed JPEG or uncompressed paths) with stuck pixel removal
 - `KDC::Menon2007` — Demosaic algorithm for GRBG Bayer pattern with correlation-based interpolation
-- `KDC::Converter` — Orchestrates the full KDC→image pipeline (8 steps: parse, decode, black level, demosaic, scale, resize, color correct, sharpen)
+- `KDC::Converter` — Orchestrates the full KDC→image pipeline (variable steps: parse, decode, black level, demosaic, scale, resize, color correct, sharpen)
 - `KDC::TIFFWriter` — Writes 16-bit RGB TIFF files with EXIF metadata
 - `KDC::PNGWriter` — Writes 8-bit RGB PNG files (pure Ruby, no external libs)
+- `KDC::DNGWriter` — Writes DNG files with IFD chain, EXIF, and raw Bayer data
 - `KDC::ColorCorrection` — LUT-based per-channel linear transform + dynamic range stretch
 - `KDC::Sharpen` — Unsharp mask via separable Gaussian blur
-- `KDC::Util` — Logging, timing, formatting utilities with Rainbow colors
+- `KDC::Util` — Logging, timing, formatting utilities with Rainbow colors; manages step counting via `Util.step`
 
 ### Key Data Flow
 
@@ -39,6 +40,8 @@ KDC → KDCParser.parse_kdc → DC120Decoder.decode → Menon2007.demosaic → C
 7. **Color correct**: Apply LUT-based gain/offset per channel (flash-aware)
 8. **Sharpen** (opt-in): Unsharp mask with separable Gaussian blur
 9. **Write**: `TIFFWriter` outputs 16-bit big-endian TIFF with EXIF, or `PNGWriter` outputs 8-bit RGB PNG
+
+Steps are numbered dynamically — inactive steps (e.g. sharpen when `--sharpen` is not used) are not printed or counted. Use `Util.step(name, elapsed)` for timed step output.
 
 ## Conventions
 
@@ -76,6 +79,7 @@ KDC → KDCParser.parse_kdc → DC120Decoder.decode → Menon2007.demosaic → C
 | `--no-color-correction` | Skip color correction step |
 | `--no-remove-stuck-pixels` | Skip stuck pixel removal after JPEG decode |
 | `--sharpen[=r,a,t]` | Apply unsharp mask sharpening (bare or `=auto` for medium; `=r,a,t` for custom) |
+| `--glitch[=N]` | Apply PNG glitch effect (0-100, default 50). Only for PNG output. |
 | `-h, --help` | Show help |
 
 ## Testing
@@ -103,3 +107,12 @@ Sample files in `test/fixtures/` serve as regression tests. Tests use `minitest`
 - `cfa_pattern` in camera_data must be `[1, 0, 2, 1]` (GRBG), not `[0, 1, 1, 2]`
 - ExifTool validate: 4 cosmetic warnings (ExifTool confusion about DNG tags 0x829D/0x829E in IFD1, and 0xC621/0xC616 tag ID swap)
 - dcraw reads CFA correctly (GR/BG, 3 colors); saturation=65535 from WhiteLevel
+
+## PNG Glitch Output
+
+- Uses `pnglitch` gem (v0.0.5) to corrupt PNG files while maintaining valid CRC32 checksums
+- Enabled via `--glitch[=N]` flag (N = 0-100, default 50); only applies to PNG output
+- Pipeline: writes normal PNG to tempfile in `./tmp/`, opens with pnglitch, applies glitch techniques, saves to output
+- Each technique independently has `intensity/100` probability of being applied; techniques can stack
+- Techniques: graft (wrong filter type), replace (random byte overwrite), transpose (chunk rearrangement), defect (random byte deletion), compressed (deflate data corruption)
+- `PNGlitch.open` requires a file path (uses `Pathname` internally), so tempfiles are used for in-memory processing

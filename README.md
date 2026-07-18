@@ -4,7 +4,7 @@ Pure Ruby KDC file parser and converter for Kodak DC120 and DC50 digital cameras
 
 ## Overview
 
-Converts Kodak `.KDC` raw files to 16-bit TIFF or 8-bit PNG images. Handles JPEG-compressed raw data, Bayer demosaic (Menon2007), aspect ratio correction, stuck pixel removal, color correction via a reference LUT, and unsharp mask sharpening.
+Converts Kodak `.KDC` raw files to 16-bit TIFF or 8-bit PNG images. Handles JPEG-compressed raw data, Bayer demosaic (Menon2007), aspect ratio correction, stuck pixel removal, color correction via a reference LUT, and unsharp mask sharpening. Optional PNG glitch effect via the `pnglitch` gem.
 
 ## AI disclosure
 
@@ -23,6 +23,7 @@ This library is a hobby project to more conveniently convert images made with de
 - **Sharpening**: Opt-in unsharp mask with separable Gaussian blur
 - **TIFF Writer**: 16-bit RGB TIFF output with EXIF metadata
 - **PNG Writer**: 8-bit RGB PNG output (pure Ruby, no external libs)
+- **PNG Glitch**: Optional glitch effect via `pnglitch` gem (graft, replace, transpose, defect, compressed)
 - **CLI Tools**: Single binary with metadata viewing and conversion modes
 
 ## Project Structure
@@ -38,9 +39,10 @@ This library is a hobby project to more conveniently convert images made with de
 │       ├── dc50.rb            # DC50 decoder (Huffman + interpolation)
 │       ├── metadata.rb        # EXIF metadata struct and formatting
 │       ├── demosaic.rb        # Menon2007 demosaic algorithm
-│       ├── converter.rb       # Full KDC→image pipeline (8 steps)
+│       ├── converter.rb       # Full KDC→image pipeline (variable steps)
 │       ├── tiff_writer.rb     # 16-bit TIFF output with EXIF
 │       ├── png_writer.rb      # 8-bit PNG output (pure Ruby)
+│       ├── dng_writer.rb      # DNG output with IFD chain
 │       ├── color_correction.rb # LUT-based per-channel color transform
 │       ├── sharpen.rb         # Unsharp mask (separable Gaussian blur)
 │       └── util.rb            # Logging, formatting, timing utilities
@@ -80,6 +82,12 @@ bundle exec kdc test/fixtures/DC120-flash-raw.kdc -o output.tif --sharpen
 
 # Apply sharpening with custom radius,amount,threshold
 bundle exec kdc test/fixtures/DC120-flash-raw.kdc -o output.tif --sharpen=1.5,1.5,5
+
+# Apply PNG glitch effect (50% intensity)
+bundle exec kdc test/fixtures/DC120-flash-raw.kdc -o output.png --glitch=50
+
+# Apply subtle glitch (25%)
+bundle exec kdc test/fixtures/DC120-flash-raw.kdc -o output.png --glitch=25
 ```
 
 ## CLI Reference
@@ -89,7 +97,7 @@ kdc [options] <file.kdc>
 
 -m, --metadata                  Show KDC metadata
 -o, --output PATH               Output file path (default: <input>.tif)
--f, --format {tif|png}          Output format (default: auto-detect from -o extension)
+-f, --format {tif|png|dng}      Output format (default: auto-detect from -o extension)
 -v, --verbose                   Show step-by-step progress with timings
 --no-color                      Disable colored output
 --no-color-correction           Skip color correction step
@@ -97,6 +105,10 @@ kdc [options] <file.kdc>
 --sharpen[=r,a,t]               Apply unsharp mask sharpening (opt-in)
                                 Bare flag or =auto for medium strength
                                 =r,a,t for custom radius,amount,threshold
+--glitch[=N]                    Apply PNG glitch effect (0-100, default 50)
+                                Only applies to PNG output
+-F, --force                     Overwrite output file if it exists
+--depth {8|16}                  Output bit depth for TIFF (default: 8)
 -h, --help                      Show help
 ```
 
@@ -151,13 +163,17 @@ KDC file
   → color correction (LUT-based per-channel gain/offset + stretch)
   → unsharp mask sharpening (opt-in, separable Gaussian blur)
   → TIFFWriter.write (16-bit RGB TIFF with EXIF) or PNGWriter.write (8-bit RGB PNG)
+  → PNGlitch.open (optional, corrupts PNG with valid CRC32 checksums)
 ```
+
+Steps are numbered dynamically in verbose output — inactive steps (e.g. sharpen when off) are not printed or counted.
 
 ## Dependencies
 
 - **Ruby** >= 3.0
 - **pure_jpeg** ~> 0.3 (JPEG decoding for compressed raw data)
 - **rainbow** ~> 3.0 (terminal colors)
+- **pnglitch** ~> 0.0.5 (PNG glitch effect, used for `--glitch` option)
 
 ## Development
 
