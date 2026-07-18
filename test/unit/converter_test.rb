@@ -48,4 +48,50 @@ class ConverterTest < Minitest::Test
     assert_equal 20, result.length
     assert_equal 20, result[0].length
   end
+
+  # Tests for extracted modules
+
+  def test_resize_module_bilinear
+    image = Array.new(10) { Array.new(10) { [100, 200, 150] } }
+    result = KDC::Resize.bilinear(image, 20, 20)
+
+    assert_equal 20, result.length
+    assert_equal 20, result[0].length
+    assert_equal [100, 200, 150], result[0][0]
+  end
+
+  def test_scale_module_to_8bit
+    image = [[[256, 512, 1024]]]
+    result = KDC::Scale.to_8bit(image)
+
+    # >> 8 truncates: 256>>8=1, 512>>8=2, 1024>>8=4
+    assert_equal [[[1, 2, 4]]], result
+  end
+
+  def test_scale_module_to_16bit
+    image = [[[100, 200, 300]]]
+    result = KDC::Scale.to_16bit(image, 255)
+
+    # 100 * 65535 / 255 = 25700
+    assert_equal 25700, result[0][0][0]
+    assert_equal 51400, result[0][0][1]
+  end
+
+  def test_scale_module_in_place
+    image = [[[100, 200, 300]]]
+    KDC::Scale.scale_16bit_in_place!(image, 255)
+
+    assert_equal 25700, image[0][0][0]
+    assert_equal 51400, image[0][0][1]
+  end
+
+  def test_dc50_processing_matrix
+    image = [[[1000, 2000, 500]]]
+    result = KDC::DC50Processing.apply_matrix(image)
+
+    # Matrix should transform the values
+    refute_equal image[0][0], result[0][0]
+    # All channels should be non-negative (clamped)
+    result[0][0].each { |v| assert v >= 0, "Channel value should be non-negative" }
+  end
 end
