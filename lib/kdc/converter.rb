@@ -184,7 +184,7 @@ module KDC
 
         # Trim to actual JPEG data (SOI to EOI) - KDC may include padding bytes
         soi = data.index("\xFF\xD8".b)
-        eoi = data.index("\xFF\xD9".b, soi)
+        eoi = data.index("\xFF\xD9".b, soi) if soi
         data = data[soi, eoi - soi + 2] if soi && eoi
 
         {
