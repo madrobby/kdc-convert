@@ -3,3 +3,4 @@ Gemfile.lock
 .nova
 .opencode
 samples/
+tmp/
