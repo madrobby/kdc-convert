@@ -10,6 +10,20 @@ module KDC
 
     def self.verbose=(val)
       @verbose = val
+      reset_steps if val
+    end
+
+    def self.reset_steps
+      @step_counter = 0
+    end
+
+    def self.step(name, elapsed)
+      @step_counter += 1
+      log("Step #{@step_counter}: #{name} ... #{format_duration(elapsed)}")
+    end
+
+    def self.step_count
+      @step_counter
     end
 
     def self.log(message)

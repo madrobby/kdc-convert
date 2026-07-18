@@ -41,6 +41,7 @@ module KDC
     # Full conversion pipeline
     def convert
       t0 = Util.now
+      Util.reset_steps
 
       steps = [
         ["Parse metadata", :parse_metadata],
@@ -49,15 +50,14 @@ module KDC
         ["Demosaic", :demosaic_image],
         ["Scale to 16-bit", :scale_to_16bit],
         ["Correct aspect ratio", :correct_aspect_ratio],
-        ["Color correction", :apply_color_correction],
-        ["Apply sharpening", :apply_sharpening]
+        ["Color correction", :apply_color_correction]
       ]
+      steps << ["Apply sharpening", :apply_sharpening] if @sharpen_params
 
-      steps.each_with_index do |(name, method), i|
+      steps.each do |name, method|
         step_t = Util.now
         send(method)
-        elapsed = Util.now - step_t
-        Util.log("Step #{i + 1}/#{steps.length}: #{name} ... #{Util.format_duration(elapsed)}")
+        Util.step(name, Util.now - step_t)
       end
 
       total = Util.now - t0
@@ -87,8 +87,7 @@ module KDC
 
       step_t = Util.now
       writer.write(output_path)
-      elapsed = Util.now - step_t
-      Util.log("Step 9/9: Write TIFF ... #{Util.format_duration(elapsed)}")
+      Util.step("Write TIFF", Util.now - step_t)
       output_path
     end
 
@@ -107,20 +106,25 @@ module KDC
       step_t = Util.now
       if @glitch_intensity && @glitch_intensity > 0
         apply_png_glitch(writer, output_path, @glitch_intensity)
-        elapsed = Util.now - step_t
-        Util.log("Step 9/9: Write PNG + glitch ... #{Util.format_duration(elapsed)}")
+        Util.step("Write PNG + glitch", Util.now - step_t)
       else
         writer.write(output_path)
-        elapsed = Util.now - step_t
-        Util.log("Step 9/9: Write PNG ... #{Util.format_duration(elapsed)}")
+        Util.step("Write PNG", Util.now - step_t)
       end
       output_path
     end
 
     # Convert and save to DNG file
     def convert_to_dng(output_path)
+      Util.reset_steps
+
+      step_t = Util.now
       parse_metadata
+      Util.step("Parse metadata", Util.now - step_t)
+
+      step_t = Util.now
       decode_raw
+      Util.step("Decode raw Bayer", Util.now - step_t)
 
       camera = @metadata.kdc_camera
       base = CameraData::COLOR_MATRICES[camera] || CameraData::COLOR_MATRICES[:dc120]
@@ -129,7 +133,9 @@ module KDC
       white_level = @metadata.kdc_white_level || 255
       as_shot_neutral = compute_as_shot_neutral
 
+      step_t = Util.now
       thumbnail_data = extract_thumbnail
+      Util.step("Extract thumbnail", Util.now - step_t)
 
       writer = DNGWriter.new(
         @raw_image[0].length, @raw_image.length,
@@ -152,8 +158,7 @@ module KDC
 
       step_t = Util.now
       writer.write(output_path)
-      elapsed = Util.now - step_t
-      Util.log("Step 4/4: Write DNG ... #{Util.format_duration(elapsed)}")
+      Util.step("Write DNG", Util.now - step_t)
       output_path
     end
 
