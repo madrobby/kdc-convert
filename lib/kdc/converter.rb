@@ -85,7 +85,10 @@ module KDC
         writer.set_metadata(@metadata)
       end
 
+      step_t = Util.now
       writer.write(output_path)
+      elapsed = Util.now - step_t
+      Util.log("Step 9/9: Write TIFF ... #{Util.format_duration(elapsed)}")
       output_path
     end
 
@@ -101,10 +104,15 @@ module KDC
       writer = PNGWriter.new(png_image[0].length, png_image.length)
       writer.set_image_data(png_image)
 
+      step_t = Util.now
       if @glitch_intensity && @glitch_intensity > 0
         apply_png_glitch(writer, output_path, @glitch_intensity)
+        elapsed = Util.now - step_t
+        Util.log("Step 9/9: Write PNG + glitch ... #{Util.format_duration(elapsed)}")
       else
         writer.write(output_path)
+        elapsed = Util.now - step_t
+        Util.log("Step 9/9: Write PNG ... #{Util.format_duration(elapsed)}")
       end
       output_path
     end
@@ -142,7 +150,10 @@ module KDC
         date_time_original: @metadata&.date_time_original
       )
 
+      step_t = Util.now
       writer.write(output_path)
+      elapsed = Util.now - step_t
+      Util.log("Step 4/4: Write DNG ... #{Util.format_duration(elapsed)}")
       output_path
     end
 
