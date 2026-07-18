@@ -11,6 +11,9 @@ require_relative "camera_data"
 require_relative "color_correction"
 require_relative "sharpen"
 require_relative "util"
+require "tempfile"
+require "fileutils"
+require "pnglitch"
 
 module KDC
   # DC120 KDC to TIFF converter
@@ -23,7 +26,7 @@ module KDC
 
     attr_reader :metadata, :raw_image, :demosaiced_image, :color_params, :sharpen_params, :flash_fired
 
-    def initialize(kdc_path, color_lut: nil, sharpen: nil, remove_stuck_pixels: true)
+    def initialize(kdc_path, color_lut: nil, sharpen: nil, remove_stuck_pixels: true, glitch: nil)
       @kdc_path = kdc_path
       @metadata = nil
       @raw_image = nil
@@ -32,6 +35,7 @@ module KDC
       @sharpen_params = sharpen
       @flash_fired = nil
       @remove_stuck_pixels = remove_stuck_pixels
+      @glitch_intensity = glitch
     end
 
     # Full conversion pipeline
@@ -96,7 +100,12 @@ module KDC
 
       writer = PNGWriter.new(png_image[0].length, png_image.length)
       writer.set_image_data(png_image)
-      writer.write(output_path)
+
+      if @glitch_intensity && @glitch_intensity > 0
+        apply_png_glitch(writer, output_path, @glitch_intensity)
+      else
+        writer.write(output_path)
+      end
       output_path
     end
 
@@ -139,7 +148,105 @@ module KDC
 
     private
 
-# Extract JPEG thumbnail from KDC file
+    # Apply PNG glitch effect using pnglitch gem
+    # Writes initial PNG to tempfile, glitches, saves to output
+    def apply_png_glitch(writer, output_path, intensity)
+      tmp_dir = File.join(File.dirname(__FILE__), "..", "..", "tmp")
+      FileUtils.mkdir_p(tmp_dir)
+
+      tempfile = Tempfile.new(["kdc_glitch", ".png"], tmp_dir)
+      begin
+        writer.write(tempfile.path)
+
+        PNGlitch.open(tempfile.path) do |png|
+          apply_glitch_techniques(png, intensity)
+          png.save(output_path)
+        end
+      ensure
+        tempfile.close!
+      end
+
+      output_path
+    end
+
+    # Each technique independently has a chance of occurring based on intensity
+    def apply_glitch_techniques(png, intensity)
+      srand
+      chance = 0.5+(intensity/2) / 100.0
+
+      png.change_all_filters :paeth
+
+      glitch_graft(png, intensity)      if rand < chance
+      glitch_replace(png, intensity)    if rand < chance
+      glitch_transpose(png, intensity)  if rand < chance
+
+      #glitch_filters(png, intensity)
+      glitch_defect(png, intensity)     if rand < chance
+      glitch_compressed(png, intensity) if rand < chance
+    end
+
+    def glitch_filters(png, intensity)
+      chance = intensity / 100.0
+
+      png.each_scanline do |scanline|
+        scanline.change_filter(rand(4).round) if rand < chance
+      end
+    end
+
+    # Apply wrong filter type to random scanlines (safe, always valid PNG)
+    def glitch_graft(png, intensity)
+      total = png.height
+      count = (total * intensity / 100.0).round
+      count = [count, 1].max
+
+      indices = (0...total).to_a.sample(count)
+      png.each_scanline do |scanline|
+        scanline.graft(rand(5)) if indices.include?(scanline.index)
+      end
+    end
+
+    # Randomly overwrite bytes in filtered data
+    def glitch_replace(png, intensity)
+      range = (intensity / 100.0 * 50).round
+      range = [range, 1].max
+      png.glitch do |data|
+        range.times { data[rand(data.size)] = "x" }
+        data
+      end
+    end
+
+    # Rearrange chunks of filtered data
+    def glitch_transpose(png, _intensity)
+      png.glitch do |data|
+        x = data.size / 4
+        data[0, x] + data[x * 2, x] + data[x * 1, x] + data[x * 3..-1]
+        data
+      end
+    end
+
+    # Randomly change bytes in filtered data
+    def glitch_defect(png, intensity)
+#       png.each_scanline do |scanline|
+#         scanline.change_filter 4
+#       end
+
+      range = [intensity, 1].max
+      png.glitch do |data|
+        range.times { data[rand(data.size)] = "" }
+        data
+      end
+    end
+
+    # Glitch the compressed data (most destructive)
+    def glitch_compressed(png, intensity)
+      range = [intensity, 1].max
+      png.glitch_after_compress do |data|
+        range.times { data[rand(data.size)] = "x" }
+        data
+      end
+    end
+
+    # Extract JPEG thumbnail from KDC file
     # The thumbnail JPEG data is in the second IFD with correct offset/size,
     # but dimensions are in the first IFD.
     def extract_thumbnail

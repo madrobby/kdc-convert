@@ -39,6 +39,7 @@ module KDC
           help: false,
           force: false,
           depth: 8,
+          glitch: nil,
         }
 
       parser = OptionParser.new do |o|
@@ -63,6 +64,12 @@ module KDC
                                    "Bare flag or =auto for medium strength\n" \
                                    "=r,a,t for custom radius,amount,threshold") do |v|
           opts[:sharpen] = parse_sharpen_value(v || "auto")
+        end
+        o.on("--glitch[=N]", "Apply PNG glitch effect (0-100, default 50)\n" \
+                              "Only applies to PNG output") do |v|
+          val = v ? v.to_i : 50
+          val = [[val, 0].max, 100].min
+          opts[:glitch] = val
         end
         o.on("-F", "--force", "Overwrite output file if it exists") { opts[:force] = true }
         o.on("--depth {8|16}", "Output bit depth for TIFF (default: 8)") { |v| opts[:depth] = v.to_i }
@@ -93,6 +100,7 @@ module KDC
         sharpen:               "--sharpen",
         no_color_correction:   "--no-color-correction",
         no_remove_stuck_pixels: "--no-remove-stuck-pixels",
+        glitch:                "--glitch",
       }
       conversion_flags.each do |key, flag|
         if opts[key]
@@ -119,6 +127,8 @@ module KDC
         ["--sharpen[=r,a,t]", "Apply unsharp mask sharpening (opt-in)\n" \
                                "    Bare flag or =auto for medium strength\n" \
                                "    =r,a,t for custom radius,amount,threshold"],
+        ["--glitch[=N]", "Apply PNG glitch effect (0-100, default 50)\n" \
+                          "    Only applies to PNG output"],
         ["--depth {8|16}", "Output bit depth for TIFF (default: 8)"],
         ["-F, --force", "Overwrite output file if it exists"],
         ["-h, --help", "Show help"],
@@ -172,6 +182,11 @@ module KDC
         Util.warn("--sharpen has no effect with DNG output") if opts[:sharpen]
         Util.warn("--no-color-correction has no effect with DNG output") if opts[:no_color_correction]
         Util.warn("--depth has no effect with DNG output (always 16-bit)") if opts[:depth] && opts[:depth] != 8
+        Util.warn("--glitch has no effect with DNG output") if opts[:glitch]
+      end
+
+      if opts[:glitch] && format != "png"
+        Util.warn("--glitch has no effect with #{format.upcase} output (PNG only)")
       end
 
       no_color_correction = opts[:no_color_correction]
@@ -191,7 +206,7 @@ module KDC
                     KDC::ColorCorrection.load_lut(lut_path)
                   end
 
-      converter = KDC::Converter.new(file, color_lut: color_lut, sharpen: sharpen, remove_stuck_pixels: remove_stuck_pixels)
+      converter = KDC::Converter.new(file, color_lut: color_lut, sharpen: sharpen, remove_stuck_pixels: remove_stuck_pixels, glitch: opts[:glitch])
       begin
         case format
         when "dng"
@@ -256,6 +271,13 @@ module KDC
                          ["OFF", false]
                        end
         lines << format_line("Sharpen", sharpen_info[0], sharpen_info[1], "OFF")
+
+        glitch_info = if opts[:glitch]
+                        ["#{opts[:glitch]}%", true]
+                      else
+                        ["OFF", false]
+                      end
+        lines << format_line("Glitch", glitch_info[0], glitch_info[1], "OFF") if format == "png"
       end
 
       puts lines.join("\n")
