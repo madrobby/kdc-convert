@@ -40,6 +40,7 @@ module KDC
           force: false,
           depth: 8,
           glitch: nil,
+          store_command_line: false,
         }
 
       parser = OptionParser.new do |o|
@@ -66,11 +67,12 @@ module KDC
           opts[:sharpen] = parse_sharpen_value(v || "auto")
         end
         o.on("--glitch[=N]", "Apply PNG glitch effect (0-100, default 50)\n" \
-                              "Only applies to PNG output") do |v|
+                               "Only applies to PNG output") do |v|
           val = v ? v.to_i : 50
           val = [[val, 0].max, 100].min
           opts[:glitch] = val
         end
+        o.on("--store-command-line", "Store command line in PNG tEXt chunk") { opts[:store_command_line] = true }
         o.on("-F", "--force", "Overwrite output file if it exists") { opts[:force] = true }
         o.on("--depth {8|16}", "Output bit depth for TIFF (default: 8)") { |v| opts[:depth] = v.to_i }
         o.on("-h", "--help", "Show help") { opts[:help] = true }
@@ -101,6 +103,7 @@ module KDC
         no_color_correction:   "--no-color-correction",
         no_remove_stuck_pixels: "--no-remove-stuck-pixels",
         glitch:                "--glitch",
+        store_command_line:    "--store-command-line",
       }
       conversion_flags.each do |key, flag|
         if opts[key]
@@ -128,7 +131,8 @@ module KDC
                                "    Bare flag or =auto for medium strength\n" \
                                "    =r,a,t for custom radius,amount,threshold"],
         ["--glitch[=N]", "Apply PNG glitch effect (0-100, default 50)\n" \
-                          "    Only applies to PNG output"],
+                           "    Only applies to PNG output"],
+        ["--store-command-line", "Store command line in PNG tEXt chunk"],
         ["--depth {8|16}", "Output bit depth for TIFF (default: 8)"],
         ["-F, --force", "Overwrite output file if it exists"],
         ["-h, --help", "Show help"],
@@ -206,7 +210,8 @@ module KDC
                     KDC::ColorCorrection.load_lut(lut_path)
                   end
 
-      converter = KDC::Converter.new(file, color_lut: color_lut, sharpen: sharpen, remove_stuck_pixels: remove_stuck_pixels, glitch: opts[:glitch])
+      command_line = opts[:store_command_line] ? "#{$0} #{ARGV.join(" ")}" : nil
+      converter = KDC::Converter.new(file, color_lut: color_lut, sharpen: sharpen, remove_stuck_pixels: remove_stuck_pixels, glitch: opts[:glitch], command_line: command_line)
       begin
         case format
         when "dng"
@@ -278,6 +283,9 @@ module KDC
                         ["OFF", false]
                       end
         lines << format_line("Glitch", glitch_info[0], glitch_info[1], "OFF") if format == "png"
+
+        cmdline_info = opts[:store_command_line] ? ["yes", true] : ["no", false]
+        lines << format_line("Store cmdline", cmdline_info[0], cmdline_info[1], "no") if format == "png"
       end
 
       puts lines.join("\n")

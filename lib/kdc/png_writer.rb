@@ -9,6 +9,11 @@ module KDC
     def initialize(width, height)
       @width = width
       @height = height
+      @text_chunks = []
+    end
+
+    def add_text_chunk(keyword, text)
+      @text_chunks << [keyword, text]
     end
 
     def set_image_data(image_data)
@@ -22,6 +27,7 @@ module KDC
       out = String.new(encoding: Encoding::BINARY)
       out << PNG_SIGNATURE
       out << build_ihdr_chunk
+      @text_chunks.each { |keyword, text| out << build_text_chunk(keyword, text) }
       out << build_idat_chunk(pixels)
       out << build_iend_chunk
 
@@ -101,6 +107,11 @@ module KDC
       data = data.b
       crc = Zlib.crc32(type + data)
       [data.bytesize].pack("N") + type + data + [crc].pack("N")
+    end
+
+    def build_text_chunk(keyword, text)
+      data = "#{keyword}\x00#{text}"
+      make_chunk("tEXt", data)
     end
 
     def build_iend_chunk
