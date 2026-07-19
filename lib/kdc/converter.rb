@@ -36,7 +36,7 @@ module KDC
       @sharpen_params = sharpen
       @flash_fired = nil
       @remove_stuck_pixels = remove_stuck_pixels
-      @glitch_intensity = glitch
+      @glitch_spec = glitch
       @command_line = command_line
     end
 
@@ -103,8 +103,8 @@ module KDC
       writer.set_image_data(png_image)
 
       step_t = Util.now
-      if @glitch_intensity && @glitch_intensity > 0
-        PngGlitch.apply(writer, output_path, @glitch_intensity)
+      if @glitch_spec && (@glitch_spec.is_a?(Array) || @glitch_spec > 0)
+        PngGlitch.apply(writer, output_path, @glitch_spec)
         Util.step("Write PNG + glitch", Util.now - step_t)
       else
         writer.write(output_path)

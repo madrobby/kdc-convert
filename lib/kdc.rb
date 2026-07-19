@@ -7,6 +7,7 @@ require_relative "kdc/demosaic"
 require_relative "kdc/converter"
 require_relative "kdc/tiff_writer"
 require_relative "kdc/png_writer"
+require_relative "kdc/png_glitch"
 require_relative "kdc/util"
 
 module KDC
@@ -66,11 +67,12 @@ module KDC
                                    "=r,a,t for custom radius,amount,threshold") do |v|
           opts[:sharpen] = parse_sharpen_value(v || "auto")
         end
-        o.on("--glitch[=N]", "Apply PNG glitch effect (0-100, default 50)\n" \
-                               "Only applies to PNG output") do |v|
-          val = v ? v.to_i : 50
-          val = [[val, 0].max, 100].min
-          opts[:glitch] = val
+        o.on("--glitch[=SPEC]", "Apply PNG glitch effect\n" \
+                                "    Bare flag or =N (0-100) for random legacy mode\n" \
+                                "    =c10,d88,g12 for ordered technique+intensity list\n" \
+                                "    Techniques: c=compressed, d=defect, g=graft, r=replace, t=transpose\n" \
+                                "    Only applies to PNG output") do |v|
+          opts[:glitch] = PngGlitch.parse_glitch_spec(v)
         end
         o.on("--store-command-line", "Store command line in PNG tEXt chunk") { opts[:store_command_line] = true }
         o.on("-F", "--force", "Overwrite output file if it exists") { opts[:force] = true }
@@ -130,8 +132,10 @@ module KDC
         ["--sharpen[=r,a,t]", "Apply unsharp mask sharpening (opt-in)\n" \
                                "    Bare flag or =auto for medium strength\n" \
                                "    =r,a,t for custom radius,amount,threshold"],
-        ["--glitch[=N]", "Apply PNG glitch effect (0-100, default 50)\n" \
-                           "    Only applies to PNG output"],
+        ["--glitch[=SPEC]", "Apply PNG glitch effect\n" \
+                           "    Bare or =N (0-100) for random legacy mode\n" \
+                           "    =c10,d88,g12 for ordered technique+intensity\n" \
+                           "    Techniques: c d g r t (compressed, defect, graft, replace, transpose)"],
         ["--store-command-line", "Store command line in PNG tEXt chunk"],
         ["--depth {8|16}", "Output bit depth for TIFF (default: 8)"],
         ["-F, --force", "Overwrite output file if it exists"],
@@ -277,11 +281,13 @@ module KDC
                        end
         lines << format_line("Sharpen", sharpen_info[0], sharpen_info[1], "OFF")
 
-        glitch_info = if opts[:glitch]
-                        ["#{opts[:glitch]}%", true]
-                      else
-                        ["OFF", false]
-                      end
+        glitch_info = if opts[:glitch].is_a?(Array)
+                         [opts[:glitch].map { |e| "#{e[:type]}#{e[:intensity]}" }.join(", "), true]
+                       elsif opts[:glitch]
+                         ["#{opts[:glitch]}%", true]
+                       else
+                         ["OFF", false]
+                       end
         lines << format_line("Glitch", glitch_info[0], glitch_info[1], "OFF") if format == "png"
 
         cmdline_info = opts[:store_command_line] ? ["yes", true] : ["no", false]
