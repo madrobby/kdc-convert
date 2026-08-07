@@ -131,6 +131,52 @@ class ConversionTest < Minitest::Test
     end
   end
 
+  # DC50 integration tests
+  def test_dc50_converts_to_tiff
+    convert_to_temp(kdc_path("DC50-1.kdc"), format: :tif) do |output|
+      assert File.exist?(output), "DC50 should produce TIFF output"
+      assert File.size(output) > 0, "DC50 TIFF should be non-empty"
+
+      content = File.read(output, mode: "rb")
+      assert_equal "MM".b, content[0, 2], "DC50 should be big-endian TIFF"
+    end
+  end
+
+  def test_dc50_converts_to_png
+    convert_to_temp(kdc_path("DC50-1.kdc"), format: :png) do |output|
+      assert File.exist?(output), "DC50 should produce PNG output"
+      assert File.size(output) > 0, "DC50 PNG should be non-empty"
+
+      content = File.read(output, mode: "rb")
+      assert_equal "\x89PNG\r\n\x1a\n".b, content[0, 8], "DC50 should have valid PNG signature"
+    end
+  end
+
+  def test_dc50_output_dimensions
+    convert_to_temp(kdc_path("DC50-1.kdc"), format: :tif) do |output|
+      result = `file #{output}`
+      assert_match(/width=768/, result, "DC50 should be 768 wide")
+      assert_match(/height=512/, result, "DC50 should be 512 tall")
+    end
+  end
+
+  def test_dc50_converts_to_dng
+    convert_to_temp(kdc_path("DC50-1.kdc"), format: :dng) do |output|
+      assert File.exist?(output), "DC50 should produce DNG output"
+      assert File.size(output) > 0, "DC50 DNG should be non-empty"
+
+      content = File.read(output, mode: "rb")
+      assert_equal "II".b, content[0, 2], "DC50 DNG should be little-endian"
+    end
+  end
+
+  def test_dc50_2_converts_to_tiff
+    convert_to_temp(kdc_path("DC50-2.kdc"), format: :tif) do |output|
+      assert File.exist?(output), "DC50-2 should produce TIFF output"
+      assert File.size(output) > 0, "DC50-2 TIFF should be non-empty"
+    end
+  end
+
   def test_dc120_dng_contains_raw_bayer_dimensions
     width = 848
     height = 976

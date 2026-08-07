@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "stuck_pixel"
+
 module KDC
   class DC50Decoder
     RAW_WIDTH  = 768
@@ -222,7 +224,9 @@ module KDC
       end
 
       # remove stuck pixels if needed
-      remove_stuck_pixels_bayer if @remove_stuck_pixels
+      if @remove_stuck_pixels
+        @raw_image = StuckPixel.fix_bayer_flat(@raw_image, RAW_WIDTH, RAW_HEIGHT)
+      end
 
       @raw_image
     end
@@ -232,42 +236,6 @@ module KDC
     def to_signed16(val)
       val &= 0xFFFF
       val >= 0x8000 ? val - 0x10000 : val
-    end
-
-    def remove_stuck_pixels_bayer
-      height = RAW_HEIGHT
-      width = RAW_WIDTH
-      return if height <= 4 || width <= 4
-
-      result = @raw_image.dup
-      height.times do |y|
-        width.times do |x|
-          neighbors = []
-          [[0, 2], [0, -2], [2, 0], [-2, 0]].each do |dy, dx|
-            ny = y + dy
-            nx = x + dx
-            next unless ny >= 0 && ny < height && nx >= 0 && nx < width
-            neighbors << @raw_image[ny * width + nx]
-          end
-          next if neighbors.empty?
-
-          val = @raw_image[y * width + x]
-          all = [val] + neighbors
-          mean = all.sum.to_f / all.length
-          range = all.max - all.min
-
-          next if range <= 15
-          next if (val - mean).abs <= 0.75 * range
-          next if (val - mean).abs < 200
-
-          sorted = neighbors.sort
-          n = sorted.length
-          median = n.odd? ? sorted[n / 2] : ((sorted[n / 2 - 1] + sorted[n / 2]) / 2)
-          result[y * width + x] = median
-        end
-      end
-
-      @raw_image = result
     end
 
     # bitstream reader matching LibRaw getbithuff / getbits

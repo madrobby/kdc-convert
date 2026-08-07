@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "pure_jpeg"
+require_relative "stuck_pixel"
 
 module KDC
   # DC120 raw data decoder
@@ -190,136 +191,15 @@ module KDC
 
     # Detect and replace stuck pixels in a decoded JPEG RGB image.
     #
-    # A pixel is stuck in a channel if its value deviates from the local
-    # neighbor mean by more than 20% of the local neighbor range. The
-    # replacement value is the per-channel median of the 4-connected
-    # neighbors. Adaptive: in noisy areas the range is wide so few pixels
-    # are flagged; in clean areas the range is tight so outliers are caught.
-    # Skips near-uniform areas where the local range is <= 15, since a
-    # relative threshold on a tiny range produces false positives from
-    # normal JPEG noise.
+    # Delegates to StuckPixel.fix_rgb which performs per-channel 4-connected
+    # neighbor analysis on packed ARGB pixels.
     def remove_stuck_pixels(rgb_image)
       height = rgb_image.height
       width = rgb_image.width
       return rgb_image if height <= 2 || width <= 2
 
       pixels = rgb_image.packed_pixels
-      result = pixels.dup
-
-      nr = Array.new(4)
-      ng = Array.new(4)
-      nb = Array.new(4)
-
-      y = 0
-      while y < height
-        x = 0
-        while x < width
-          idx = y * width + x
-
-          ncount = 0
-
-          if y > 0
-            np = result[(y - 1) * width + x]
-            nr[ncount] = (np >> 16) & 0xFF
-            ng[ncount] = (np >> 8) & 0xFF
-            nb[ncount] = np & 0xFF
-            ncount += 1
-          end
-          if y + 1 < height
-            np = result[(y + 1) * width + x]
-            nr[ncount] = (np >> 16) & 0xFF
-            ng[ncount] = (np >> 8) & 0xFF
-            nb[ncount] = np & 0xFF
-            ncount += 1
-          end
-          if x > 0
-            np = result[y * width + (x - 1)]
-            nr[ncount] = (np >> 16) & 0xFF
-            ng[ncount] = (np >> 8) & 0xFF
-            nb[ncount] = np & 0xFF
-            ncount += 1
-          end
-          if x + 1 < width
-            np = result[y * width + (x + 1)]
-            nr[ncount] = (np >> 16) & 0xFF
-            ng[ncount] = (np >> 8) & 0xFF
-            nb[ncount] = np & 0xFF
-            ncount += 1
-          end
-
-          if ncount > 0
-            packed = pixels[idx]
-            pr = (packed >> 16) & 0xFF
-            pg = (packed >> 8) & 0xFF
-            pb = packed & 0xFF
-
-            stuck = false
-
-            # R channel
-            r_sum = nr[0]; r_min = nr[0]; r_max = nr[0]
-            ni = 1
-            while ni < ncount
-              v = nr[ni]
-              r_sum += v
-              r_min = v if v < r_min
-              r_max = v if v > r_max
-              ni += 1
-            end
-            r_range = r_max - r_min
-            if r_range > 15 && (pr * ncount - r_sum).abs * 2 > r_range * ncount
-              stuck = true
-            end
-
-            unless stuck
-              # G channel
-              g_sum = ng[0]; g_min = ng[0]; g_max = ng[0]
-              ni = 1
-              while ni < ncount
-                v = ng[ni]
-                g_sum += v
-                g_min = v if v < g_min
-                g_max = v if v > g_max
-                ni += 1
-              end
-              g_range = g_max - g_min
-              if g_range > 15 && (pg * ncount - g_sum).abs * 2 > g_range * ncount
-                stuck = true
-              end
-            end
-
-            unless stuck
-              # B channel
-              b_sum = nb[0]; b_min = nb[0]; b_max = nb[0]
-              ni = 1
-              while ni < ncount
-                v = nb[ni]
-                b_sum += v
-                b_min = v if v < b_min
-                b_max = v if v > b_max
-                ni += 1
-              end
-              b_range = b_max - b_min
-              if b_range > 15 && (pb * ncount - b_sum).abs * 2 > b_range * ncount
-                stuck = true
-              end
-            end
-
-            if stuck
-              sr = nr[0, ncount].sort
-              sg = ng[0, ncount].sort
-              sb = nb[0, ncount].sort
-              mid = ncount / 2
-              med_r = ncount.odd? ? sr[mid] : (sr[mid - 1] + sr[mid]) / 2
-              med_g = ncount.odd? ? sg[mid] : (sg[mid - 1] + sg[mid]) / 2
-              med_b = ncount.odd? ? sb[mid] : (sb[mid - 1] + sb[mid]) / 2
-              result[idx] = (med_r << 16) | (med_g << 8) | med_b
-            end
-          end
-
-          x += 1
-        end
-        y += 1
-      end
+      result = StuckPixel.fix_rgb(pixels, width, height)
 
       PureJPEG::Image.new(width, height, result, icc_profile: rgb_image.icc_profile)
     end
@@ -332,16 +212,10 @@ module KDC
 
     # Detect and replace stuck pixels in a 16-bit Bayer GRBG array.
     #
-    # For each pixel, collects same-color 4-connected neighbors (distance 2 in
-    # the Bayer grid), computes the neighbor range, and flags the pixel as
-    # stuck if its deviation from the mean exceeds 50% of the range (same
-    # thresholds as the RGB path). Replacement value is the median of
-    # same-color neighbors.
-    #
     # The uncompressed raw data has per-row cyclic shifting applied, which
     # scrambles the Bayer pattern in coordinate space. This method unshifts
-    # each row to reconstruct the clean GRBG grid, runs detection, then
-    # re-applies the shift.
+    # each row to reconstruct the clean GRBG grid, runs detection via the
+    # shared StuckPixel module, then re-applies the shift.
     def remove_stuck_pixels_bayer(bayer)
       height = bayer.length
       width = bayer[0].length
@@ -354,12 +228,7 @@ module KDC
       grid = bayer.each_with_index.map { |row, row_idx| unshift_row(row, shifts[row_idx]) }
 
       # Run stuck pixel detection on clean GRBG grid
-      result = grid.each_with_index.map do |row, y|
-        row.each_with_index.map do |_, x|
-          neighbors = same_color_neighbors(grid, x, y, height, width)
-          process_bayer_pixel(grid, x, y, neighbors)
-        end
-      end
+      result = StuckPixel.fix_bayer_2d(grid)
 
       # Re-apply shift to each row
       result.each_with_index.map { |row, row_idx| shift_row(row, shifts[row_idx]) }
@@ -375,40 +244,6 @@ module KDC
     def shift_row(row, shift)
       return row if shift == 0
       row.dup.rotate(shift)
-    end
-
-    # Collect same-color 4-connected neighbors in GRBG Bayer pattern.
-    # Neighbor offset is (0,±2) and (±2,0) for all color types.
-    def same_color_neighbors(bayer, x, y, height, width)
-      neighbors = []
-      [[0, 2], [0, -2], [2, 0], [-2, 0]].each do |dy, dx|
-        ny, nx = y + dy, x + dx
-        next unless ny >= 0 && ny < height && nx >= 0 && nx < width
-        neighbors << bayer[ny][nx]
-      end
-      neighbors
-    end
-
-    # Check if a pixel is stuck and return replacement value.
-    # Returns the original value if not stuck.
-    #
-    # More conservative than the RGB path: uses 0.75 threshold and requires
-    # a minimum absolute deviation of 200 (in 16-bit space, ~0.8 in 8-bit).
-    # This prevents flagging valid pixels in textured areas where the Bayer
-    # neighbor sampling (distance 2) sees natural variation.
-    def process_bayer_pixel(grid, x, y, neighbors)
-      return grid[y][x] if neighbors.empty?
-
-      val = grid[y][x]
-      all = [val] + neighbors
-      mean = all.sum.to_f / all.length
-      range = all.max - all.min
-
-      return val if range <= 15
-      return val if (val - mean).abs <= 0.75 * range
-      return val if (val - mean).abs < 200
-
-      median_of(neighbors)
     end
   end
 end
